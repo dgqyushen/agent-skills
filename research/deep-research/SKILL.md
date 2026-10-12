@@ -3,7 +3,7 @@ name: deep-research
 description: "Use when the user asks for \"deep research\", a \"research report on\", a \"comprehensive analysis of\", to \"look into X in depth\", to \"write a report on X\", or any question needing multi-source synthesis beyond a single search — an autonomous multi-step deep research engine implementing an iterative Think → Search → Extract → Synthesize → Stop loop. The LLM drives every decision: what to search, what's relevant, what's missing, and when to stop. Produces a cited, magazine-quality report with inline citations, category-specific formatting, and research stats. For entity vetting/dossiers use entity-research; for news digests use news-monitoring; for source-grounded Q&A use notebooklm-mode."
 license: MIT
 metadata:
-  version: 1.9.1
+  version: 1.9.2
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   hermes:
@@ -186,6 +186,8 @@ Relevance itself stays agent-judged — the taxonomy assigns each reason a singl
 
 **Follow-up threading (deep-dive chains, upstream's breadth-halving recursion, bounded):** while extracting (§3c), each query thread records ≤2 follow-up directions when a material gap remains — empty when covered, never padded. Round 2+ queries draw from these per-thread directions plus global gaps, and every thread carries the **original user goal** so deep queries stay aligned with it (drift guard). At most one active deep-dive chain per sub-question, width = ceil(preset breadth / 2) at each level below its first, all inside the plan's search budget.
 
+**Coverage balancing (round 2+):** before following the loudest gap, put a query at any planned sub-question still at **zero coverage**. A gap list ordered by noise lets one loud thread starve a silent one; balancing is mandatory before generating optional deep-dive queries.
+
 **Refute polarity requirement:** Round 2+ must include at least one query targeting counter-evidence, opposing viewpoints, or criticisms of the leading hypothesis. If no counter-evidence is found after searching, note it explicitly in the synthesis — refute count = 0 usually means you didn't search well, not that no counter-evidence exists. This prevents confirmation-biased research.
 
 ### 3b — Search and Fetch
@@ -333,6 +335,7 @@ After synthesis (and optional evidence structuring), evaluate whether the report
 
 **Stop if:**
 - All sub-questions have ≥1 source → YES
+- **Saturation ≤5% for 2 consecutive rounds** — new material findings this round ≤5% of all accumulated findings, two rounds running → YES (quantified convergence measure, adapted from Anjos2/recursive-research; the threshold is unvalidated upstream — treat as a strong signal, never a substitute for the qualitative checks below)
 - Most of the complexity cap used (e.g. round 2 of 2 for simple, round 3 of 3 for moderate) and remaining gaps are minor → YES
 - Complexity cap reached (simple=2, moderate=3, complex=5) → YES
 - Token budget approaching limit → YES (synthesize with what you have)
@@ -376,7 +379,7 @@ Carry each material fact's **evidence-basis tag** inline (§3c), lead on `[VERIF
 [If sources disagree, present both sides with attribution. Do not silently arbitrate. If no contradictions found, state "No direct contradictions between sources." This section is REQUIRED — its absence is a quality signal that counter-evidence wasn't searched.]
 
 ## Gaps
-[What couldn't be determined from available sources. Each gap should note: what's unknown, why it matters, and whether it could be resolved with more research. If using structured evidence, reference the writing_context items. If no gaps, state "No significant gaps identified."]
+[What couldn't be determined from available sources. Each gap should note: what's unknown, why it matters, and whether it could be resolved with more research. If using structured evidence, reference the writing_context items. If no gaps, state "No significant gaps identified." **Source-set bias check (mandatory):** the first gap line must state the bias your whole source set shares — one dominant language, era, school, jurisdiction, or industry — adapted from Munger inversion. A homogeneous source set is itself a gap, even when every individual source is primary-tier.]
 
 ## Conclusion
 [Synthesis of findings, implications, remaining uncertainties — ties back to the executive summary and overview. The conclusion confirms or qualifies the overview, it doesn't introduce new analysis.]
@@ -505,6 +508,8 @@ delegate_task(
 [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus) — PewDiePie's self-hosted AI workspace — includes a "Deep Research" feature with multi-step web research and source reading, conceptually similar to this skill's Think → Search → Extract → Synthesize → Stop loop. This skill is a pure-prompt workflow (no UI, no server) designed to run inside any agent's tool loop.
 
 [AnotiaWang/deep-research-web-ui](https://github.com/AnotiaWang/deep-research-web-ui) (MIT) — Nuxt UI wrapping dzhng/deep-research with a hardened engine, and the main vendor source for this skill. **Vendored:** verbatim-quote evidence anchoring, v1.8.2 (`shared/utils/search-learning.ts` → `check-quote`, §3c); structured search mini-plans with frozen constraints, planning discipline and provider guidance, v1.9.0 (`shared/utils/search-plan.ts` → §3a); search-budget presets + breadth-halving estimate, v1.9.0 (`shared/utils/research-input.ts` → Step 1 + `estimate-budget`); bounded deep-dive threading on follow-up directions, v1.9.0 (`lib/core/deep-research.ts` → §3a); six-way round-outcome taxonomy with per-reason bounded retry, v1.9.1 (`shared/utils/search-assessment.ts` → §3a); snippet-first on-demand reading with fetch budgets, v1.9.0 (`lib/core/read-source.ts` → §3b); term-scored verbatim passage selection, v1.9.0 (`lib/core/source-context.ts` → §3d); surgical report revision with citation→block mapping, v1.9.0 (`shared/utils/report-revision.ts` → Step 6 + `map-citations`). **Evaluated, not vendored:** full tree recursion, streaming-JSON structured-output repair, UI/deployment layers, and dzhng's "the source is irrelevant" prompt (contradicts this skill's provenance discipline). Full two-sided map: `references/anotiawang-deep-research-concepts.md`.
+
+[Anjos2/recursive-research](https://github.com/Anjos2/recursive-research) (MIT) — Claude Code prompt skill for long-cycle recursive research. **Vendored (v1.9.2, guidance-level):** saturation-based stop signal (§3f), coverage balancing across plan sub-questions (§3a), mandatory source-set bias check in the Gaps section (Step 4). **Not vendored:** cycle machinery, WDM weighted-source scoring, per-domain seed source lists, preventive context-pause thresholds, local-corpus mode. The ≤5% threshold is unvalidated upstream (repo last pushed 2026-04-22, no field hardening); it ships as a signal, not a rule. Map: `references/recursive-research-concepts.md`.
 
 [DocsGPT](https://github.com/arc53/DocsGPT) (arc53, MIT) — ResearchAgent Plan → Research → Synthesize with adaptive depth, clarification, token-budget tracking, and empty-search refinement. Mapping: `references/docsgpt-concepts.md`.
 
