@@ -61,6 +61,8 @@ export SKILL_RETRIEVAL_RERANK=jev  # optional: rerank the top-K with the Jev sys
 
 Optional, off by default. When enabled, the BM25 top-N shortlist is reranked by the Jev system-one judgment model (`api.typesafe.ai/v1/systemone`, model `jev-latest`). It is fail-soft: a 3.0 s timeout with no retries, and any error falls back to the BM25 order. The key is read from `os.environ` only (Hermes loads the active profile's `.env` into environ at startup — no cross-profile file reads). Every query is logged to the A/B log path; `scripts/rerank_ab_report.py` summarizes the log locally. See **Data handling** below for exactly what leaves the machine.
 
+**Evaluate over a period of time before deciding to keep it.** A single session cannot show whether the rerank helps: most turns have near-uniform per-candidate probabilities, so the practical benefit is hard to judge turn by turn. Enable the rerank, use it for real work for at least 1-2 weeks, then review the A/B log with `scripts/rerank_ab_report.py` — look at how often the Jev order differs from the BM25 order (`rank1_flip`), what the per-turn probability spread looks like, and whether the flips are right. If the spread is consistently tiny or the flips look arbitrary, turn it off.
+
 ## Read-only core references
 
 The plugin imports ten Hermes core helpers **read-only** (never assigned, never wrapped). From `agent.prompt_builder`:

@@ -216,14 +216,17 @@ def _score_rerank_key(item: "tuple[str, float, float, int]") -> "tuple":
     Decisive candidates (prob outside the band) sort by Jev probability;
     band candidates keep BM25-relative position, which is implemented as:
     decisive-high first (by prob desc), then band candidates (by BM25 rank),
-    then decisive-low (by prob asc so the least-relevant sink deepest).
+    then decisive-low (by prob desc so the least-relevant sinks deepest).
     """
     skill_id, bm25_score, prob, bm25_rank = item
     if prob >= BAND_HIGH:
         return (0, -prob, bm25_rank)
     if prob > BAND_LOW:  # band — anchor to BM25 position
         return (1, bm25_rank, prob)
-    return (2, prob, bm25_rank)
+    # Decisive-low sinks below everything else, and within the tier the
+    # highest-probability candidate goes first so the least-relevant
+    # candidate sinks deepest (matches the docstring contract).
+    return (2, -prob, bm25_rank)
 
 
 #: A/B log size cap (bytes). When the log exceeds this, it is rotated to

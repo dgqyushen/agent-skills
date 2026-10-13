@@ -145,13 +145,37 @@ def test_rerank_middle_band_anchors_to_bm25(monkeypatch, tmp_path):
     result = mod.rerank("query", shortlist)
     order = result["order"]
     # s1 (0.95) and s3 (0.90) are decisive-high, sorted by prob desc.
-    # s0 (0.20) and s2 (0.10) are decisive-low → sink, sorted by prob asc
-    # (s2 0.10 sinks deepest, then s0 0.20).
+    # s0 (0.20) and s2 (0.10) are decisive-low → sink below the band
+    # candidate, and within the tier the less relevant (lower prob)
+    # sinks deepest: s0 (0.20) first, s2 (0.10) last.
     assert order[0] == "s1"
     assert order[1] == "s3"
+    assert order[-2:] == ["s0", "s2"]
     # s0 (decisive low per Jev, but BM25 #1): must NOT be dropped
     assert "s0" in order
     assert set(order) == {"s0", "s1", "s2", "s3"}  # nothing dropped, only reordered
+
+
+def test_rerank_all_low_tier_orders_by_prob_desc(monkeypatch, tmp_path):
+    """Regression: in an all-low turn (every candidate decisive-low), the
+    highest-probability candidate must be #1, not the lowest — the decisive-
+    low tier sorts by prob DESC so the least relevant sinks deepest
+    (2026-10-13 trial: ascending sort made the lowest-prob candidate #1)."""
+    monkeypatch.setenv("SKILL_RETRIEVAL_RERANK", "jev")
+    monkeypatch.setenv("SKILL_RETRIEVAL_RERANK_LOG", str(
+        __import__("pathlib").Path("/nonexistent-dir-for-test/log.jsonl")))
+    mod = _fresh_mod()
+
+    # All four candidates score decisively low; nothing in the band.
+    probs = {"s0": 0.20, "s1": 0.10, "s2": 0.30, "s3": 0.05}
+    monkeypatch.setattr(mod, "_jev_rerank_call",
+                        lambda sl, q, k: (probs, {"input_tokens": 1, "latency_ms": 1}, None))
+    monkeypatch.setattr(mod, "_load_key", lambda: "k")
+
+    shortlist = [("s0", 4.0), ("s1", 3.0), ("s2", 2.0), ("s3", 1.0)]
+    result = mod.rerank("query", shortlist)
+    order = result["order"]
+    assert order == ["s2", "s0", "s1", "s3"]  # prob desc: 0.30, 0.20, 0.10, 0.05
 
 
 def test_rerank_failure_falls_back_to_bm25(monkeypatch, tmp_path):
