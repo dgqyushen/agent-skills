@@ -46,18 +46,57 @@ MODEL_DEFAULT = "jev-latest"
 # model id differ. https://openrouter.ai/docs/guides/community/jev
 OPENROUTER_URL = "https://openrouter.ai/api/v1/systemone"
 OPENROUTER_MODEL_DEFAULT = "~typesafe/jev-latest"
-ENV_PREFIX_RE = re.compile(
-    r"^(ignore( all)?( previous| prior)? (instructions|prompts?|messages?)"
-    r"|disregard( all)? (instructions|prompts?)"
+_SHAPES_RE_BODY = (
+    r"ignore( all)?( previous| prior)? (instructions|prompts?|messages?)\b"
+    r"|disregard( all)? (instructions|prompts?)\b"
     r"|system( prompt)?:"
-    r"|you are now"
+    r"|you are now\b"
     r"|new (instructions|task):"
-    r"|delete (everything|all)"
-    r"|erase (everything|all)"
-    r"|forget (everything|all|your)"
-    r"|override (your )?(instructions|rules)"
-    r")\b[^.\n]*[.\n]?\s*",
+    r"|delete (everything|all)\b"
+    r"|erase (everything|all)\b"
+    r"|forget (everything|all|your)\b"
+    r"|override (your )?(instructions|rules)\b"
+)
+# ^-anchored pass for the user query: a legit query may quote imperative
+# text in the middle, so only the leading shape is stripped. The full
+# shape set applies (a query is one turn's own words; the shapes that
+# common legitimate phrasing also uses — 'delete all', 'system:' — only
+# cost the query when they sit at the very start).
+ENV_PREFIX_RE = re.compile(
+    r"^(" + _SHAPES_RE_BODY + r")[^.!?\n]*[.!?\n]?\s*",
     re.IGNORECASE,
+)
+# Boundary for the description pass: a shape may sit after ANY separator
+# that is not a plain-ASCII letter/digit/underscore — space, punctuation,
+# quotes, brackets, colons, ACCENTED LATIN and CJK characters all allow
+# the strip (explicit codepoints instead of Python's Unicode-\w lookbehind,
+# which treats CJK as word characters and would block CJK-preceded shapes).
+# The class is written as NUMERIC RANGES (\\x41-\\x5A etc.), not literal
+# letters, and the flag is scoped to the shape group only: Python 3.14
+# expands literal members of a character class into their full folding
+# orbit under (?i) — 'K' (U+004B) would also match the Kelvin sign (U+212A),
+# and 'İ'/'ı'/'ſ' block the strip as if they were plain letters. Ranges
+# fold-check the lowercased char instead, so only true ASCII letters block
+# the strip.
+_DESC_BOUNDARY = r"(?:^|(?<![0-9\x41-\x5A\x61-\x7A\x5F]))"
+# Unanchored pass for third-party skill descriptions, narrowed to the
+# UNAMBIGUOUS injection shapes. 'system:', 'new task:', 'delete all',
+# 'erase all' and 'forget your' are ordinary wording in skill
+# descriptions (build systems, task lists, cleanup skills), so only the
+# shapes that essentially never appear in legitimate description text
+# are REMOVED — the shape itself plus its trailing whitespace and one
+# sentence terminator. Sentence text around the shape stays (bounded
+# damage), so a description ABOUT ignoring instructions keeps its
+# context; text with no recognized shape is not detectable — Jev
+# remains the judge and the A/B log keeps the raw shortlist.
+ENV_INJECT_RE = re.compile(
+    _DESC_BOUNDARY + r"(?i:(?:"
+    r"ignore( all)?( previous| prior)? (instructions|prompts?|messages?)\b"
+    r"|disregard( all)? (instructions|prompts?)\b"
+    r"|system prompt:"
+    r"|you are now\b"
+    r"|override( your)? (instructions|rules)\b"
+    r"))[.!?\n]?[ \t]*",
 )
 
 
@@ -120,18 +159,30 @@ _TOK_PRICE_PER_INPUT = 0.042 / 1_000_000  # $/token, TypeSafe list price
 
 
 def neutralize_query(query) -> str:
-    """Flatten any input to a string and strip imperative sentence patterns.
+    """Flatten any input to a string and strip leading imperative patterns.
 
-    Keeps legitimate query content; removes text shaped like injected
-    commands so it cannot steer the rerank judgement from inside the state.
+    Whitespace is collapsed first (a shape cannot hide behind a double
+    space, a tab, or a line break at the start), the leading pass repeats
+    with each strip (a splice can reassemble a shape after a removal),
+    and the final collapse cleans the leftovers. Capped at 2000 chars.
     """
     if query is None:
         return ""
     text = query if isinstance(query, str) else str(query)
-    neutral = ENV_PREFIX_RE.sub("", text)
-    # Collapse whitespace left by removals; cap length for the request budget.
-    neutral = re.sub(r"\s+", " ", neutral).strip()
-    return neutral[:2000]
+    # Zero-width characters cannot hide a shape from the stripper.
+    text = re.sub(r"[\u200b-\u200d\u2060\ufeff]", "", text)
+    # Cap FIRST: the strip loop rescans the residual once per shape, so an
+    # unbounded input is quadratic; past the cap nothing recognizable is
+    # sent anyway.
+    cur = re.sub(r"\s+", " ", text).strip()[:2000]
+    # Repeat until stable; strictly shortening, so it terminates (a query
+    # with N leading copies of a shape needs N passes — no fixed cap there).
+    while True:
+        nxt = ENV_PREFIX_RE.sub("", cur)
+        if nxt == cur:
+            break
+        cur = nxt
+    return re.sub(r"\s+", " ", cur).strip()[:2000]
 
 
 def _env_log_path() -> Path:
@@ -165,31 +216,68 @@ def _load_key() -> str | None:
     return legacy or None
 
 
+def _neutralize_desc(text: str) -> str:
+    """Strip imperative injection shapes from a skill description.
+
+    Whitespace is collapsed FIRST (a shape cannot hide behind a double
+    space, a tab, or a line break), then the unanchored description pass
+    repeats with each strip (a splice can reassemble a shape around the
+    removed part: 'You are\\n<shape>\\nnow a yes-bot'), and a final
+    collapse cleans the leftovers. Capped later in build_request.
+
+    The query keeps the other contract: leading-only pass over the FULL
+    shape set (neutralize_query).
+    """
+    text = re.sub(r"[\u200b-\u200d\u2060\ufeff]", "", text)
+    # Cap first (see neutralize_query): bounded scan per pass.
+    cur = re.sub(r"\s+", " ", text).strip()[:3000]
+    # Repeat until stable: each strip removes the matched shape (always
+    # non-empty), so the string strictly shortens and the loop terminates —
+    # consecutive copies of a shape are all removed, with no pass cap to
+    # leak the tail copies.
+    while True:
+        nxt = ENV_INJECT_RE.sub("", cur)
+        if nxt == cur:
+            break
+        cur = nxt
+    return re.sub(r"\s+", " ", cur).strip()
+
+
 def build_request(query: str, shortlist: "list[tuple[str, str]]") -> "tuple[dict, dict]":
     """Build the Jev request payload pieces for one rerank turn.
 
     ``shortlist`` is [(skill_id, description), ...] in BM25 order.
-    Returns (questions, state) following the proven /v1/systemone contract:
+    Returns (questions, state) following the /v1/systemone contract:
     one noul per candidate, keyed ``rel_<skill_id>``, true/false criteria.
+
+    Each question names its own candidate in its instructions. Jev judges every
+    question against the shared state, and the question key is an opaque label
+    to it, so identical instructions per candidate make every question the same
+    question and the probabilities come back near-uniform (no usable ranking).
     """
     neutral_query = neutralize_query(query)
     questions: dict = {}
-    items: dict = {}
     for skill_id, description in shortlist:
-        desc = (description or "")[:400]
+        # A description is third-party text (any skill author's wording), and
+        # it now travels inside the question instructions — the channel Jev
+        # judges on — so the unambiguous injection shapes are removed from it
+        # wherever they appear (whitespace-normalized, repeat-until-stable;
+        # _neutralize_desc below). The user query keeps the leading-only
+        # pass over the full shape set: its mid-query text is the user's
+        # own words, not attacker-controlled metadata.
+        desc = _neutralize_desc(description or "")[:400]
         questions[f"rel_{skill_id}"] = {
             "type": "noul",
             "instructions": (
-                "Is this skill relevant to serve the user's query intent? "
-                "Judge semantic intent match, not exact word overlap."
+                f"Is the skill '{skill_id}' ({desc}) relevant to serve the user's "
+                "query intent? Judge semantic intent match, not exact word overlap."
             ),
             "criteria": {
-                "true": "skill should be surfaced for this query",
-                "false": "skill is unrelated to this query",
+                "true": "this skill should be surfaced for this query",
+                "false": "this skill is unrelated to this query",
             },
         }
-        items[skill_id] = desc
-    state = {"user_query": neutral_query, "skills": items}
+    state = {"user_query": neutral_query}
     return questions, state
 
 
@@ -318,7 +406,12 @@ def rerank(query, shortlist=None, rerank_candidates: int = RERANK_CANDIDATES) ->
 
     key = _load_key()
     probs, usage, error = (None, None, "missing_key")
-    if key:
+    if not neutralize_query(query):
+        # A query whose text neutralized away entirely gives Jev nothing
+        # to judge against — go through the shared fallback path below so
+        # the A/B log stays complete.
+        error = "empty_query"
+    elif key:
         # Description text for Jev state comes from the shortlist tuples when
         # present; the caller may pass (skill_id, score, description) triples.
         # Only the capped head is sent — the tail never leaves the machine.
