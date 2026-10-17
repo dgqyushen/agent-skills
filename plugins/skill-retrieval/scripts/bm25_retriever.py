@@ -70,6 +70,60 @@ B = 0.75
 
 # ─── Tokenizer ────────────────────────────────────────────────────────────────
 
+# CJK-like scripts the bigram tokenizer covers: kana (fullwidth + halfwidth),
+# ideographs (Unified + Extension A/B) and hangul syllables. Everything below
+# U+3040 with a word boundary in the corpus behaves like the whitespace
+# languages.
+CJK_RANGES = (
+    (0x3040, 0x30FF),    # Hiragana + Katakana
+    (0x3400, 0x4DBF),    # CJK Extension A
+    (0x4E00, 0x9FFF),    # CJK Unified Ideographs
+    (0xAC00, 0xD7AF),    # Hangul syllables
+    (0xFF66, 0xFF9F),    # Halfwidth Katakana
+    (0x20000, 0x2A6DF),  # CJK Extension B (supplementary plane)
+)
+
+
+def _has_cjk(text: str) -> bool:
+    """True when any character sits in one of the bigram-covered CJK ranges."""
+    return any(
+        lo <= ord(ch) <= hi for ch in text for lo, hi in CJK_RANGES
+    )
+
+
+# Matches maximal runs of the covered CJK scripts inside a preview.
+_CJK_RUN_RE = re.compile(
+    "[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uff66-\uff9f"
+    "\U00020000-\U0002a6df]+"
+)
+# Splits a lowercased token into ASCII runs, covered-CJK runs, and single
+# leftover non-ASCII characters (so a mixed-script token keeps its Latin
+# terms instead of welding them into a bigram with a CJK character).
+_SCRIPT_SPLIT_RE = re.compile(
+    "[a-z0-9]+|[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uff66-\uff9f"
+    "\U00020000-\U0002a6df]+|[^a-z0-9\\s]"
+)
+#: Capped budget for the joined CJK runs of one document: enough to hit
+#: content-bearing text at the top of a SKILL.md for the short CJK queries
+#: the tokenizer serves, small enough that BM25's length normalization
+#: (b=0.75) does not push the skill's English-description matches far down
+#: when it ranks against CJK-free competitors (a CJK-body skill is exactly
+#: the motivating case for English queries too).
+CJK_RUN_BUDGET = 200
+
+
+def _cjk_runs(body: str) -> str:
+    """Extract the covered CJK runs from a body preview, space-joined.
+
+    Only the runs join the document — never the 3000-char English body
+    around them — and the joined text is capped at CJK_RUN_BUDGET, so a
+    single CJK mention cannot put ~2500 bigrams into an English document
+    and a Chinese body cannot dominate the length normalization.
+    """
+    runs = " ".join(m.group() for m in _CJK_RUN_RE.finditer(body))
+    return runs[:CJK_RUN_BUDGET]
+
+
 def tokenize(text: str) -> list[str]:
     """Simple whitespace + punctuation tokenizer, lowercased.
 
@@ -92,16 +146,43 @@ def tokenize(text: str) -> list[str]:
             text = str(text)
     text = text.lower()
     text = re.sub(r"[^\w\s]", " ", text)
-    return text.split()
+    tokens: list[str] = []
+    for token in text.split():
+        # CJK runs have no whitespace boundaries: a whole Chinese/ Japanese/
+        # Korean sentence would otherwise become ONE token and match nothing
+        # in the index. Emit bigrams so such a query can hit corpus text.
+        # ASCII tokens pass through unchanged.
+        if len(token) == 1 or not _has_cjk(token):
+            tokens.append(token)
+            continue
+        # Mixed-script tokens: split into ASCII runs, CJK runs, and per-char
+        # leftover (e.g. 'é'), so '用python写' keeps the 'python' term,
+        # 'Python으로' keeps the 'python' term, and 'café中文' does not weld
+        # 'é' and '中' into one token.
+        for part in _SCRIPT_SPLIT_RE.findall(token):
+            if part[0].isascii():
+                tokens.append(part)
+                continue
+            if len(part) == 1:
+                # Single CJK character: emitted as itself (covered by the
+                # len==1 rule for whole tokens).
+                tokens.append(part)
+                continue
+            # Bigrams only. For a 2-character run the single bigram IS the
+            # run; appending it and its bigram would emit the same string
+            # twice and double-count its TF on documents and queries.
+            for i in range(len(part) - 1):
+                tokens.append(part[i : i + 2])
+    return tokens
 
 
 # ─── Skill corpus loader ──────────────────────────────────────────────────────
 
-def _parse_skill_md(skill_md: Path) -> tuple[str, str]:
-    """Return (name, description) parsed from a SKILL.md frontmatter.
+def _parse_skill_md(skill_md: Path) -> tuple[str, str, str]:
+    """Return (name, description, body_preview) parsed from a SKILL.md frontmatter.
 
-    Returns ("", "") for valid frontmatter with missing name/description.
-    Returns ("", "") for invalid frontmatter (no fences, malformed YAML,
+    Returns ("", "", "") for valid frontmatter with missing name/description.
+    Returns ("", "", "") for invalid frontmatter (no fences, malformed YAML,
     non-mapping) and for a file that cannot be read. Never raises, so one
     unreadable skill cannot abort the whole index build.
     """
@@ -111,14 +192,14 @@ def _parse_skill_md(skill_md: Path) -> tuple[str, str]:
         text = skill_md.read_text(errors="replace")
     except OSError as exc:
         logger.warning("Cannot read %s: %s", skill_md, exc)
-        return "", ""
+        return "", "", ""
     lines = text.splitlines()
 
     # Frontmatter must start at the first line (allowing optional BOM).
     first_line = lines[0].lstrip("\ufeff").strip() if lines else ""
     if first_line != "---":
         logger.warning("No YAML frontmatter in %s (first line is not '---')", skill_md)
-        return "", ""
+        return "", "", ""
 
     # Find the closing fence.
     close_idx = None
@@ -128,18 +209,18 @@ def _parse_skill_md(skill_md: Path) -> tuple[str, str]:
             break
     if close_idx is None:
         logger.warning("No closing YAML frontmatter fence in %s", skill_md)
-        return "", ""
+        return "", "", ""
 
     fm_text = "\n".join(lines[1:close_idx])
     try:
         data = yaml.safe_load(fm_text)
     except yaml.YAMLError:
         logger.warning("Malformed YAML frontmatter in %s", skill_md)
-        return "", ""
+        return "", "", ""
 
     if not isinstance(data, dict):
         logger.warning("Non-mapping YAML frontmatter in %s", skill_md)
-        return "", ""
+        return "", "", ""
 
     name = data.get("name")
     desc = data.get("description")
@@ -148,7 +229,13 @@ def _parse_skill_md(skill_md: Path) -> tuple[str, str]:
 
     name_str = "" if name is None else str(name)
     desc_str = "" if desc is None else str(desc)
-    return name_str, desc_str
+    # Body preview (first ~3000 chars after the frontmatter) joins the BM25
+    # corpus: Chinese queries match skill CONTENT, not just the (usually
+    # English) description. Size-capped so one huge SKILL.md cannot bloat
+    # the index build.
+    body_lines = lines[close_idx + 1 :]
+    body_preview = " ".join(line.strip() for line in body_lines if line.strip())[:3000]
+    return name_str, desc_str, body_preview
 
 
 def _iter_skill_files(root: Path, prefix: str = "") -> list[tuple[Path, str, str]]:
@@ -212,6 +299,24 @@ def _frontmatter_keywords(frontmatter: dict) -> tuple[list[str], list[str]]:
     return triggers, tags
 
 
+def _index_text_join(base: str, body: object) -> str:
+    """Extract the CJK runs of a SKILL.md body preview into its document.
+
+    The runs join ONLY when the body is a str containing CJK characters,
+    space-joined and capped at CJK_RUN_BUDGET: the bigram tokenizer gets
+    target text for CJK queries, while the English body text around the
+    runs contributes nothing (no recall or length shift in the English
+    corpus — the query-relevant skill keeps its description score).
+    Anything else (missing key, wrong type, CJK-free body) degrades to the
+    base text unchanged — the same contract the description-only corpus had.
+    """
+    if isinstance(body, str) and _has_cjk(body):
+        runs = _cjk_runs(body)
+        if runs:
+            return base + "\n" + runs
+    return base
+
+
 def _record_skill(skills: list[dict], seen_names: set[str], entry: dict, *, prefix: str = "") -> None:
     """Append a parsed Hermes skill entry while preserving first-seen precedence."""
     name = str(entry.get("frontmatter_name") or entry.get("skill_name") or "").strip()
@@ -219,17 +324,25 @@ def _record_skill(skills: list[dict], seen_names: set[str], entry: dict, *, pref
         return
     seen_names.add(name)
     desc = str(entry.get("description") or "")
-    # Trigger phrases and tags broaden BM25 recall beyond the description:
-    # the indexed document is the retrieval surface (name: desc + lists),
-    # while only the description is injected. A skill that declares triggers
-    # can fire on queries the short description cannot cover.
+    # Trigger phrases, tags and the body preview broaden BM25 recall beyond
+    # the description: the indexed document is the retrieval surface
+    # (name: desc + lists + body preview), while only the description is
+    # injected. Trigger phrases cover queries the short description cannot;
+    # the CJK bigram tokenizer needs Chinese body text to match Chinese
+    # queries against.
     triggers = entry.pop("_triggers", None)
     tags = entry.pop("_tags", None)
+    body = entry.pop("_body_preview", None)
     text = f"{name}: {desc}"
     if triggers:
         text += " triggers: " + " ".join(triggers)
     if tags:
         text += " tags: " + " ".join(tags)
+    # _index_text_join degrades a missing/wrong-type preview to the base text
+    # (same contract _parse_skill_md's str-only previews already guaranteed)
+    # and joins a preview only when it contains CJK, so English documents
+    # stay byte-identical to the description-only corpus.
+    text = _index_text_join(text, body)
     skills.append({
         "skill_id": _skill_id_from_entry(entry, prefix=prefix),
         "leaf_name": str(entry.get("skill_name") or name),
@@ -415,7 +528,7 @@ def _load_active_skills_legacy(
         if leaf_name in disabled or rel_name in disabled:
             continue
 
-        name, desc = _parse_skill_md(skill_md)
+        name, desc, body_preview = _parse_skill_md(skill_md)
         if not name:
             name = leaf_name
 
@@ -424,7 +537,11 @@ def _load_active_skills_legacy(
             "leaf_name": leaf_name,
             "name": name,
             "description": desc,
-            "text": f"{name}: {desc}",
+            # Body preview joins the indexed text so CJK queries (bigrams) can
+            # hit skill content beyond the frontmatter — most writing-skill
+            # descriptions are English while queries are Chinese. The shared
+            # helper applies the same CJK gate as the primary paths.
+            "text": _index_text_join(f"{name}: {desc}", body_preview),
             # Legacy/fallback entries are not the plugin directory scan.
             "plugin_origin": False,
         })
@@ -577,6 +694,17 @@ def _load_active_skills_hermes(
                 return
             if not _skill_doc_is_visible(entry, visible_names):
                 return
+            # Body preview joins the indexed document (see _record_skill): the
+            # CJK bigram tokenizer needs Chinese body text to match Chinese
+            # queries against — most skill descriptions are English.
+            # _parse_skill_md is a tested in-repo helper that always returns a
+            # 3-tuple of str and never raises; the tuple-guard degenerates a
+            # future stub's wrong shape to no preview instead of an IndexError
+            # escaping the (TypeError, AttributeError) systemic handler.
+            parsed3 = _parse_skill_md(skill_file)
+            entry["_body_preview"] = (
+                parsed3[2] if isinstance(parsed3, tuple) and len(parsed3) >= 3 else ""
+            )
             _record_skill(skills, seen_names, entry, prefix=prefix)
         except (TypeError, AttributeError) as exc:
             # Signature change in a core helper is systemic, not per-file:
@@ -663,6 +791,20 @@ def _load_active_skills_hermes(
             "description": desc,
         }
         entry["_triggers"], entry["_tags"] = _frontmatter_keywords(frontmatter)
+        # Same body-preview join as the directory scan (see _record_skill).
+        # skill_path should be the SKILL.md file; resolve one level deeper if
+        # a directory is passed, so registry skills are not silently left
+        # with no body preview.
+        body_src = Path(str(skill_path)) if skill_path else None
+        if body_src is not None and body_src.is_dir():
+            body_src = body_src / "SKILL.md"
+        if body_src is not None:
+            parsed3 = _parse_skill_md(body_src)
+            entry["_body_preview"] = (
+                parsed3[2] if isinstance(parsed3, tuple) and len(parsed3) >= 3 else ""
+            )
+        else:
+            entry["_body_preview"] = ""
         # Registry ids are ``plugin:skill`` and are absent from <available_skills>.
         _record_skill(skills, seen_names, entry)
 
