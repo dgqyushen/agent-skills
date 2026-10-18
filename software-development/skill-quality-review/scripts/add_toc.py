@@ -23,7 +23,9 @@ Usage:
     python3 add_toc.py <dir> --max-entries 80
 
 Exit code 0 = nothing pending or all applied cleanly; 1 = pending changes
-remain (dry-run) or some files were skipped for structure reasons.
+remain (dry-run) or some files were skipped for structure or encoding
+reasons. A non-UTF-8 file reports not-utf8, is never rewritten, and keeps
+the exit non-zero until it is converted to UTF-8.
 """
 import json
 import os
@@ -79,8 +81,15 @@ def is_vendored(rel, n_lines):
     return n_lines > 5000
 
 
-def add_toc(fp, rel, max_entries):
-    txt = open(fp, errors="replace").read()
+def add_toc(fp, rel, max_entries, apply=False):
+    """Return a status. Writes ONLY when apply=True ("fixed"); a dry-run returns "would-fix".
+    Reads strict UTF-8 (a non-UTF-8 file is skipped, never rewritten) and writes UTF-8 + LF via
+    a temp file and os.replace, so a failed write can't truncate the original."""
+    try:
+        with open(fp, encoding="utf-8", newline="") as fh:
+            txt = fh.read()
+    except UnicodeDecodeError:
+        return "not-utf8"
     lines = txt.splitlines()
     if len(lines) <= 100:
         return "short"
@@ -103,9 +112,14 @@ def add_toc(fp, rel, max_entries):
             break
     if ins is None:
         return "no-insert-point"
+    if not apply:
+        return "would-fix"
     toc = [TOC_MARK, ""] + [f"- {e}" for e in entries] + [""]
     new = lines[:ins] + toc + lines[ins:]
-    open(fp, "w").write("\n".join(new) + "\n")
+    tmp = fp + ".toc-tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("\n".join(new) + "\n")
+    os.replace(tmp, fp)
     return "fixed"
 
 
@@ -133,20 +147,20 @@ def main():
                 continue
             fp = os.path.join(dp, fn)
             rel = os.path.relpath(fp, root)
-            status = add_toc(fp, rel, max_entries)
+            status = add_toc(fp, rel, max_entries, apply=do_apply)
             report[rel] = status
-            if status == "fixed":
+            if status in ("fixed", "would-fix"):
                 changed += 1
     if as_json:
         print(json.dumps({"applied": do_apply, "fixed": changed,
                           "report": report}, indent=1))
     else:
-        print(f"{'APPLIED' if do_apply else 'DRY-RUN'} | fixed: {changed}")
+        print(f"{'APPLIED' if do_apply else 'DRY-RUN'} | {'fixed' if do_apply else 'would fix'}: {changed}")
         for rel, status in report.items():
             if status not in ("short", "already-toc", "vendored"):
                 print(f"  {status:<20} {rel}")
-    pending = sum(1 for s in report.values() if s == "fixed" and not do_apply)
-    skipped = sum(1 for s in report.values() if s.startswith(("too-many", "no-")))
+    pending = sum(1 for s in report.values() if s == "would-fix")
+    skipped = sum(1 for s in report.values() if s.startswith(("too-many", "no-", "not-utf8")))
     return 1 if (pending or skipped) else 0
 
 
