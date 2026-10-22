@@ -67,10 +67,14 @@ FLUX text-to-image inputs: `prompt`, `image_size`, `num_images`, `num_inference_
 | Model | Endpoint id | Unit price | Notes |
 |---|---|---|---|
 | Nano Banana | `fal-ai/nano-banana` | ~$0.039 / image *(verify)* | Strong instruction adherence; uses `aspect_ratio`. |
-| Nano Banana Pro | `fal-ai/nano-banana-pro` | **$0.15 / image** | a.k.a. Nano Banana 2 (Gemini 3 Pro Image). 1K/2K/4K, accurate text, character consistency. Best quality. |
+| Nano Banana Pro | `fal-ai/nano-banana-pro` | **$0.15 / image** | Gemini 3 Pro Image — separate endpoint from `fal-ai/nano-banana-2`. 1K/2K/4K, accurate text, character consistency. Best quality. |
+| Nano Banana 2 [t2i] | `fal-ai/nano-banana-2` | $0.08 / image (1K default; 2K 1.5×, 4K 2×) | Gemini 3.1 Flash Image — fast tier, distinct endpoint. Validated 11 Oct 2026 on bilingual EN+中文 pages: 100% text correct. |
 | GPT Image 2 | `openai/gpt-image-2` | **tiered** by `quality`×size — high-q 1024² ~$0.13, 4K ~$0.40; medium ~$0.034; + tokens | **Non-default alternative for accurate IN-IMAGE TEXT.** Uses `image_size` presets (like FLUX; custom must be multiples of 16, max edge 3840). `quality` defaults to **high** — pass `--arg quality=medium` to cut cost. Cost is multi-component → helper figure is a rough estimate. |
 | Recraft V3 | `fal-ai/recraft/v3/text-to-image` (also `…/image-to-image`) | $0.04 / image ($0.08 for **vector**) | **Brand/design alternative** — brand-style control, **vector/SVG** output, strong text. `style` = `realistic_image` / `digital_illustration` / `vector_illustration` (set via `--arg style=…`); uses `image_size` presets. Best non-default for on-brand graphics / scalable print assets. (Newer **Recraft V4.1 Pro** exists — `fal-ai/recraft/v4.1/pro/text-to-image` — if you want the latest tier.) |
 | FLUX Pro v1.1 | `fal-ai/flux-pro/v1.1` | *(verify)* | High-quality FLUX option (also `…/v1.1-ultra`). |
+| MOSS-Image-SFT | `fal-ai/moss-image` | **$0.05 / MP** | **Layout-precise in-image text.** JSON layout prompt (`references/moss-layout.md` + vendored `scripts/moss_compile_prompt.py`); bilingual EN+中文, exact strings, minimal design. `image_size` custom (multiples of 16). T2I only — no edit endpoint. Compiled layout prompts need `--arg enable_prompt_expansion=false`. Verified against the fal page and a billed run, 22 Oct 2026. |
+
+> **Text-bearing routing (verified 22 Oct 2026):** placement precision and clean bilingual minimalism → MOSS-Image route (above); text accuracy at moderate density → Nano Banana 2 ($0.08) or Nano Banana Pro ($0.15); text accuracy on dense published infographics → GPT Image 2 (best text, highest cost).
 
 > **When to reach for GPT Image 2 (and only then):** when the image must contain **legible, correct
 > text** baked in (a sign, badge, label) — its standout strength. Otherwise the defaults win on cost
