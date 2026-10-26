@@ -45,6 +45,7 @@ Then restart the Hermes session so the plugin's `register()` runs.
 | Setting | Default | Override |
 |---------|---------|----------|
 | Top-K results | `6` | `SKILL_RETRIEVAL_TOP_K` env var |
+| Injected results | `TOP_K` | `SKILL_RETRIEVAL_INJECT_K` env var; a pool wider than the injected set (e.g. `TOP_K=12`, `INJECT_K=6`) lets the Jev rerank filter, not just reorder |
 | System prompt compaction | enabled | `SKILL_RETRIEVAL_COMPACT=0` disables compaction but keeps retrieval injection |
 | BM25 k1 | `1.5` | edit `scripts/bm25_retriever.py` |
 | BM25 b | `0.75` | edit `scripts/bm25_retriever.py` |
@@ -55,6 +56,7 @@ Then restart the Hermes session so the plugin's `register()` runs.
 
 ```bash
 export SKILL_RETRIEVAL_TOP_K=8
+export SKILL_RETRIEVAL_INJECT_K=6
 export SKILL_RETRIEVAL_COMPACT=0  # retrieval-only mode; the skills prompt is left unchanged (the builder is still wrapped to record tool capabilities)
 export SKILL_RETRIEVAL_RERANK=jev  # optional: rerank the top-K with the Jev system-one model
 export SKILL_RETRIEVAL_RERANK_PROVIDER=openrouter  # optional: call Jev through OpenRouter with OPENROUTER_API_KEY instead of a TypeSafe key

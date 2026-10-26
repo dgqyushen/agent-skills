@@ -14,7 +14,13 @@ Net token savings: ~11.5K → ~2.3K tokens per turn for skills, with
 better discovery than dumping every description into the system prompt.
 
 Configuration:
-  TOP_K defaults to 6. Override with env var ``SKILL_RETRIEVAL_TOP_K``.
+  TOP_K (BM25 candidate pool) defaults to 6. Override with env var
+  ``SKILL_RETRIEVAL_TOP_K``.
+  INJECT_K (how many of the retrieved candidates are actually injected)
+  defaults to TOP_K. Override with env var ``SKILL_RETRIEVAL_INJECT_K``.
+  Values above TOP_K are clamped. A candidate pool wider than the
+  injected set gives the reranker something to filter: Jev injects its top
+  INJECT_K picks; on any Jev failure BM25's first INJECT_K stand.
   System prompt compaction is enabled by default. Set
   ``SKILL_RETRIEVAL_COMPACT=0`` to keep retrieval injection while leaving the
   original Hermes skills prompt untouched.
@@ -82,22 +88,38 @@ _COMPACT_SENTINEL = "<!-- skill-retrieval:compact -->"
 _SKILLS_BLOCK_RE = re.compile(r"<available_skills>(.*?)</available_skills>", re.DOTALL)
 
 
-def _parse_top_k(raw: str | None, default: int = _DEFAULT_TOP_K) -> int:
-    """Parse TOP_K from env; invalid/empty values fall back to ``default``."""
+def _parse_top_k(
+    raw: str | None, default: int = _DEFAULT_TOP_K, name: str = "SKILL_RETRIEVAL_TOP_K"
+) -> int:
+    """Parse a size env var (TOP_K, INJECT_K); invalid/empty → ``default``."""
     if raw is None or not str(raw).strip():
         return default
     try:
         value = int(str(raw).strip())
     except (TypeError, ValueError):
         logger.warning(
-            "Invalid SKILL_RETRIEVAL_TOP_K=%r — using default %d", raw, default
+            "Invalid %s=%r — using default %d", name, raw, default
         )
         return default
     if value < 1:
         logger.warning(
-            "SKILL_RETRIEVAL_TOP_K=%r must be >= 1 — using default %d", raw, default
+            "%s=%r must be >= 1 — using default %d", name, raw, default
         )
         return default
+    return value
+
+
+def _parse_inject_k(raw: str | None, top_k: int) -> int:
+    """Parse INJECT_K; unset → top_k; out of range clamped, never rejected."""
+    if raw is None or not str(raw).strip():
+        return top_k
+    value = _parse_top_k(raw, default=top_k, name="SKILL_RETRIEVAL_INJECT_K")
+    if value > top_k:
+        logger.warning(
+            "SKILL_RETRIEVAL_INJECT_K=%d exceeds candidate top_k=%d — clamping",
+            value, top_k,
+        )
+        return top_k
     return value
 
 
@@ -115,6 +137,7 @@ def _parse_bool_env(raw: str | None, *, default: bool = True) -> bool:
 
 
 TOP_K = _parse_top_k(os.environ.get("SKILL_RETRIEVAL_TOP_K"))
+INJECT_K = _parse_inject_k(os.environ.get("SKILL_RETRIEVAL_INJECT_K"), TOP_K)
 COMPACT_SYSTEM_PROMPT = _parse_bool_env(os.environ.get("SKILL_RETRIEVAL_COMPACT"))
 
 # Capability snapshots captured from the llm_request middleware: the skill
@@ -509,8 +532,8 @@ def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | Non
             return None
 
         # Optional Jev semantic rerank stage (SKILL_RETRIEVAL_RERANK=jev).
-        # Advisory: BM25 order is kept on any Jev failure; nothing is ever
-        # dropped — the shortlist is only re-ordered.
+        # Advisory: BM25 order is kept on any Jev failure; the shortlist is
+        # only re-ordered. The injection below then filters to INJECT_K.
         rerank_note = ""
         if RERANK_MODE == "jev" and len(results) >= 2:
             shortlist = []
@@ -547,6 +570,17 @@ def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | Non
                 logger.info(
                     "Jev rerank skipped: %s", rr.get("fallback_reason", "unknown")
                 )
+
+        # Injection split: the candidate pool is TOP_K wide but only the
+        # first INJECT_K entries are injected. With jev rerank applied this
+        # keeps Jev's top picks; on any fallback it keeps BM25's.
+        dropped = len(results) - INJECT_K
+        if dropped > 0:
+            if rerank_note:
+                rerank_note = rerank_note.replace(
+                    " -->", f", kept top {INJECT_K}/{len(results)} -->"
+                )
+            results = results[:INJECT_K]
 
         lines = [
             "## Retrieved Skills (top-K relevant to your query)",
@@ -594,7 +628,8 @@ def register(ctx):
 
     ctx.register_hook("pre_llm_call", _on_pre_llm_call)
     logger.info(
-        "Skill retrieval plugin registered (top_k=%d, compact=%s)",
+        "Skill retrieval plugin registered (top_k=%d, inject_k=%d, compact=%s)",
         TOP_K,
+        INJECT_K,
         str(COMPACT_SYSTEM_PROMPT).lower(),
     )
