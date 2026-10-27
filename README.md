@@ -42,13 +42,14 @@ agent_skills/
 │   ├── file-organizer/               ← LLM-powered directory organizer: scan → propose → confirm → move
 │   ├── receipt-compiler/             ← phone-camera receipt photos → straightened B&W A4 expense-claim PDF
 │   ├── task-brief/                   ← goal/context/constraints brief compiled + confirmed before substantial tasks
+│   ├── marp-deck/                    ← Marp Markdown decks → PPTX/PDF/HTML render
 │   ├── pdf2epub/                     ← text-layer PDF book → structured EPUB (cover, TOC nav, illustrations, endnotes)
 │   └── pdf2epub-calibration/         ← classifier calibration rules for pdf2epub (companion)
 ├── agent-ops/                        ← agent infrastructure and maintenance skills
 │   ├── claude-plugin-converter/      ← convert Claude Code plugins → self-contained Hermes plugins
-│   ├── skill-maintainer/             ← end-to-end skill library maintenance + upstream sync
 │   ├── log-analyzer/                 ← log pattern detection: error clusters, rate limits, timeouts
 │   ├── input-token-overheads/        ← audit per-turn input token cost: measure, rank, reduce
+│   ├── input-token-analysis/         ← explain aggregate token spend: where tokens went, which consumers dominate
 │   ├── operator-brain/               ← 8-module behavioral stack: act, lead with outcome, ground claims
 │   └── hermes-onboarding/            ← 21-step customer onboarding: gateway, dashboard, memory, crons
 ├── software-development/              ← skill development, review, and methodology skills
@@ -58,6 +59,7 @@ agent_skills/
 │   └── disk-cleanup/                 ← triage survey → safe/ask buckets → execute → verify delta
 └── plugins/                          ← installable Hermes Agent plugins
     ├── skill-retrieval/              ← BM25 retrieval that injects the top-K relevant skills per turn
+    ├── contrastive-advisor/          ← advisory hook after behavioral skill edits; bundles the contrastive-refinement skill
     └── lumen/                        ← LLM wiki plugin: methodology + memory-fed curator
 ```
 
@@ -93,12 +95,13 @@ New skills are added as folders under the relevant domain directory.
 | [pdf2epub](productivity/pdf2epub/) | productivity | Text-layer PDF book → structured EPUB: cover, printed-TOC nav, inline illustrations, linked endnotes | pymupdf, ebooklib, Pillow |
 | [pdf2epub-calibration](productivity/pdf2epub-calibration/) | productivity | Classifier calibration rules for pdf2epub: line classification thresholds, TOC probe matching, endnote-section architecture | — (companion to pdf2epub) |
 | [marp-deck](productivity/marp-deck/) | productivity | Marp presentations: Markdown source of truth → PDF/PPTX/HTML, with themes, SVG components, PPTX import, and render tests | — |
-| [claude-plugin-converter](agent-ops/claude-plugin-converter/) | agent-ops | Two-phase converter: analyze Claude Code plugins → generate installable Hermes plugins | skill-maintainer |
-| [skill-maintainer](agent-ops/skill-maintainer/) | agent-ops | Skill library maintenance: author, curate, upstream drift tracking, publish | — |
-| [skill-quality-review](software-development/skill-quality-review/) | software-development | Batch skill audit: 9 automated checks, writing-for-agents levers, per-skill grep methodology, efficacy A/B testing, frontmatter/description fixes | skill-maintainer |
+| [claude-plugin-converter](agent-ops/claude-plugin-converter/) | agent-ops | Two-phase converter: analyze Claude Code plugins → generate installable Hermes plugins | — |
+| [contrastive-refinement](plugins/contrastive-advisor/skills/contrastive-refinement/) | agent-ops (bundled in `plugins/contrastive-advisor/`) | Evidence-first skill refinement: probe candidate edits on the same task, blind-select, compose, record lessons with evidence lines | contrastive-advisor (its own plugin) |
+| [skill-quality-review](software-development/skill-quality-review/) | software-development | Batch skill audit: 9 automated checks, writing-for-agents levers, per-skill grep methodology, efficacy A/B testing, frontmatter/description fixes | — |
 | [build-review-loop](software-development/build-review-loop/) | software-development | Iterative build→review→fix loop: spec/brief → external builder (Cursor CLI) → independent verification → second-model review (Codex/Opus), N rounds; loop planning, brief templates, review adjudication | two-axis-code-review, skill-quality-review |
 | [log-analyzer](agent-ops/log-analyzer/) | agent-ops | Log pattern detection: error clusters, rate limits, timeout clusters, tool failures | scheduled-summary |
-| [input-token-overheads](agent-ops/input-token-overheads/) | agent-ops | Audit per-turn input token cost: measure each source, rank by cost, act on top consumers | skill-maintainer, input-token-analysis |
+| [input-token-overheads](agent-ops/input-token-overheads/) | agent-ops | Audit per-turn input token cost: measure each source, rank by cost, act on top consumers | input-token-analysis |
+| [input-token-analysis](agent-ops/input-token-analysis/) | agent-ops | Explain aggregate input token spend across sessions, cron fires, and tool traffic: where tokens went, which consumers dominate, what reduces them | input-token-overheads |
 | [operator-brain](agent-ops/operator-brain/) | agent-ops | 8-module behavioral stack from Anthropic's Fable guide: act, lead with outcome, ground every claim | controlled-english-output |
 | [hermes-onboarding](agent-ops/hermes-onboarding/) | agent-ops | 21-step customer onboarding: gateway, dashboard, memory, search, guardrails, maintenance crons | disk-cleanup, log-analyzer |
 | [disk-cleanup](devops/disk-cleanup/) | devops | Triage disk space: survey all mounts → safe/ask buckets → execute approved set → verify delta | — |
@@ -138,6 +141,27 @@ A Hermes plugin that turns an agent's conversation history and memory into a mai
 
 Install by copying or symlinking `plugins/lumen/` into `~/.hermes/plugins/` (or your profile's `plugins/`), enable it with `hermes plugins enable lumen` (user plugins are opt-in), then restart the gateway. Tests: `python3 -m pytest plugins/lumen/tests/`.
 
+### contrastive-advisor
+
+A Hermes plugin that is the advisory companion to the `contrastive-refinement` skill, which it **bundles as of v0.3.0** (`plugins/contrastive-advisor/skills/contrastive-refinement/`, registered as `contrastive-advisor:contrastive-refinement`; a standalone skills-tree copy is unaffected and the two can coexist). When a behavioral skill edit lands (`skill_manage` patch/create, or a patch/write_file against a live `SKILL.md`), the plugin observes the call — never blocking or rewriting it — and injects ONE reminder on the next turn to run the probe cycle from `contrastive-refinement`, including the current state of that skill's probe-evidence directory.
+
+- **Fire ledger** — every delivered advisory is recorded to `~/.hermes/skill-probes/fire-ledger.jsonl` with a TTL; an unanswered advisory re-fires on subsequent sessions until the fire row is closed.
+- **Sweeper cron** — a self-installed clearance job (`contrastive-advisor fire clearance`) classifies and closes backlog fires (mechanical edit / real-environment evidence / provenance gap / leave-open) using the classification rules from `contrastive-refinement`.
+- **Observe-only** — hooks return advisory context; tool calls are never blocked or modified, and failures degrade to a logged no-op.
+
+Install by copying or symlinking `plugins/contrastive-advisor/` into `~/.hermes/plugins/` (or your profile's `plugins/`), then restart the gateway. Tests: `python3 -m pytest plugins/contrastive-advisor/tests/`.
+
+### skill-manifest
+
+A Hermes plugin that enforces the `UPSTREAM_MANIFEST.md` rule for a skill library: skill arrivals (installed, copied in, created) must have a manifest row acknowledging them, and content changes in manifested skills must be re-acknowledged against a content fingerprint.
+
+- **Arrival detection** — an `on_skill_lifecycle` hook records pending arrivals; a session drift probe sweeps the skills root for dirs with no manifest row and injects a bounded advisory (top `max_reported`, the rest as `+N more`).
+- **Change tracking** — manifested skills are fingerprinted (file set + content hash, capped per skill and per probe); content changes since the last acknowledgment re-flag the row.
+- **Auto clearance cron** — one unpinned drift-clearance job is ensured by default (`auto_resolve`), schedule and delivery target configurable.
+- **Fail-soft** — malformed configs, missing Hermes core modules, or manifest-parse failures degrade to a no-op advisory and never abort the host turn.
+
+Install by copying or symlinking `plugins/skill-manifest/` into `~/.hermes/plugins/` (or your profile's `plugins/`), then restart the gateway. Tests: `python3 -m pytest plugins/skill-manifest/tests/`.
+
 ## Skill maturity
 
 | Skill | Status | Tests | Dependencies |
@@ -167,10 +191,11 @@ Install by copying or symlinking `plugins/lumen/` into `~/.hermes/plugins/` (or 
 | task-brief | Beta | — | None (prompt-only) |
 | marp-deck | Stable | ✓ | Node.js (marp-cli); LibreOffice only for editable PPTX export |
 | claude-plugin-converter | Beta | ✓ | None (stdlib) |
-| skill-maintainer | Beta | ✓ | None (stdlib; curl for GitHub API). Unix-first — cron, curl, `which`, shell loops. Windows via WSL/MSYS2 untested. |
 | skill-quality-review | Beta | ✓ (add_toc.py) | None (stdlib) |
 | build-review-loop | Beta | scripts | None (prompt-only) |
 | log-analyzer | Stable | ✓ | None (stdlib) |
+| input-token-analysis | Beta | scripts | None (stdlib) |
+| contrastive-refinement (bundled) | Stable | ✓ | None (stdlib) — ships inside `plugins/contrastive-advisor/` |
 | input-token-overheads | Stable | evals, scripts, tests | PyYAML (optional) |
 | operator-brain | Stable | — | None (prompt-only) |
 | hermes-onboarding | Beta | evals | None (prompt-only) |
