@@ -52,8 +52,7 @@ agent_skills/
 │   ├── operator-brain/               ← 8-module behavioral stack: act, lead with outcome, ground claims
 │   └── hermes-onboarding/            ← 21-step customer onboarding: gateway, dashboard, memory, crons
 ├── software-development/              ← skill development, review, and methodology skills
-│   ├── skill-quality-review/          ← batch skill audit: 9 checks, writing-for-agents levers, efficacy testing
-│   └── build-review-loop/             ← iterative build→review→fix loop under a cross-model quality gate
+│   └── skill-quality-review/          ← batch skill audit: 9 checks, writing-for-agents levers, efficacy testing
 ├── devops/                           ← infrastructure and system maintenance skills
 │   └── disk-cleanup/                 ← triage survey → safe/ask buckets → execute → verify delta
 └── plugins/                          ← installable Hermes Agent plugins
@@ -96,9 +95,7 @@ New skills are added as folders under the relevant domain directory.
 | [marp-deck](productivity/marp-deck/) | productivity | Marp presentations: Markdown source of truth → PDF/PPTX/HTML, with themes, SVG components, PPTX import, and render tests | — |
 | [claude-plugin-converter](agent-ops/claude-plugin-converter/) | agent-ops | Two-phase converter: analyze Claude Code plugins → generate installable Hermes plugins | — |
 | [contrastive-refinement](plugins/contrastive-advisor/skills/contrastive-refinement/) | agent-ops (bundled in `plugins/contrastive-advisor/`) | Evidence-first skill refinement: probe candidate edits on the same task, blind-select, compose, record lessons with evidence lines | contrastive-advisor (its own plugin) |
-| [skill-quality-review](software-development/skill-quality-review/) | software-development | Batch skill audit: 9 automated checks, writing-for-agents levers, per-skill grep methodology, efficacy A/B testing, frontmatter/description fixes | — |
-| [build-review-loop](software-development/build-review-loop/) | software-development | Iterative build→review→fix loop: spec/brief → external builder (Cursor CLI) → independent verification → second-model review (Codex/Opus), N rounds; loop planning, brief templates, review adjudication | two-axis-code-review, skill-quality-review |
-| [log-analyzer](agent-ops/log-analyzer/) | agent-ops | Log pattern detection: error clusters, rate limits, timeout clusters, tool failures | scheduled-summary |
+| [skill-quality-review](software-development/skill-quality-review/) | software-development | Batch skill audit: 9 automated checks, writing-for-agents levers, per-skill grep methodology, efficacy A/B testing, frontmatter/description fixes | — | [log-analyzer](agent-ops/log-analyzer/) | agent-ops | Log pattern detection: error clusters, rate limits, timeout clusters, tool failures | scheduled-summary |
 | [input-token-overheads](agent-ops/input-token-overheads/) | agent-ops | Audit input token cost at two scopes: per-turn prompt overhead (tool schemas, skills index, system text, profile, memory — measured live, ranked, reduced) and aggregate spend/cost accounting across sessions, cron fires, and tool traffic (cache-aware interpretation, pre-checked config levers, scheduled delta checks) | — |
 | [operator-brain](agent-ops/operator-brain/) | agent-ops | 8-module behavioral stack from Anthropic's Fable guide: act, lead with outcome, ground every claim | controlled-english-output |
 | [hermes-onboarding](agent-ops/hermes-onboarding/) | agent-ops | 21-step customer onboarding: gateway, dashboard, memory, search, guardrails, maintenance crons | disk-cleanup, log-analyzer |
@@ -190,7 +187,6 @@ Install by copying or symlinking `plugins/skill-manifest/` into `~/.hermes/plugi
 | marp-deck | Stable | ✓ | Node.js (marp-cli); LibreOffice only for editable PPTX export |
 | claude-plugin-converter | Beta | ✓ | None (stdlib) |
 | skill-quality-review | Beta | ✓ (add_toc.py) | None (stdlib) |
-| build-review-loop | Beta | scripts | None (prompt-only) |
 | log-analyzer | Stable | ✓ | None (stdlib) |
 | contrastive-refinement (bundled) | Stable | ✓ | None (stdlib) — ships inside `plugins/contrastive-advisor/` |
 | input-token-overheads | Stable | evals, scripts, tests | PyYAML (optional) |
