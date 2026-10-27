@@ -510,7 +510,7 @@ class State:
     def get(self, key, default=None): return self._d.get(key, default)
     def set(self, key, value): self._d[key] = value
 
-home = tempfile.mkdtemp(dir="/root")
+home = tempfile.mkdtemp()
 
 if mode == "package":
     import types
