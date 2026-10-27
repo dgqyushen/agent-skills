@@ -190,7 +190,7 @@ def main():
     print(f"# Input token audit — last {args.days} days — generated {time.strftime('%Y-%m-%d %H:%M %Z', time.localtime())}")
     audit_sessions(args.db, cutoff)
     audit_cron(args.cron_audit, args.jobs, cutoff)
-    print("\n# Interpretation levers: see SKILL.md (input-token-analysis)")
+    print("\n# Interpretation levers: see SKILL.md (input-token-overheads, Aggregate Spend Audit)")
     return 0
 
 

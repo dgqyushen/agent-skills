@@ -48,8 +48,7 @@ agent_skills/
 ├── agent-ops/                        ← agent infrastructure and maintenance skills
 │   ├── claude-plugin-converter/      ← convert Claude Code plugins → self-contained Hermes plugins
 │   ├── log-analyzer/                 ← log pattern detection: error clusters, rate limits, timeouts
-│   ├── input-token-overheads/        ← audit per-turn input token cost: measure, rank, reduce
-│   ├── input-token-analysis/         ← explain aggregate token spend: where tokens went, which consumers dominate
+│   ├── input-token-overheads/        ← audit input token cost, two scopes: per-turn prompt overhead + aggregate spend (cost accounting)
 │   ├── operator-brain/               ← 8-module behavioral stack: act, lead with outcome, ground claims
 │   └── hermes-onboarding/            ← 21-step customer onboarding: gateway, dashboard, memory, crons
 ├── software-development/              ← skill development, review, and methodology skills
@@ -100,8 +99,7 @@ New skills are added as folders under the relevant domain directory.
 | [skill-quality-review](software-development/skill-quality-review/) | software-development | Batch skill audit: 9 automated checks, writing-for-agents levers, per-skill grep methodology, efficacy A/B testing, frontmatter/description fixes | — |
 | [build-review-loop](software-development/build-review-loop/) | software-development | Iterative build→review→fix loop: spec/brief → external builder (Cursor CLI) → independent verification → second-model review (Codex/Opus), N rounds; loop planning, brief templates, review adjudication | two-axis-code-review, skill-quality-review |
 | [log-analyzer](agent-ops/log-analyzer/) | agent-ops | Log pattern detection: error clusters, rate limits, timeout clusters, tool failures | scheduled-summary |
-| [input-token-overheads](agent-ops/input-token-overheads/) | agent-ops | Audit per-turn input token cost: measure each source, rank by cost, act on top consumers | input-token-analysis |
-| [input-token-analysis](agent-ops/input-token-analysis/) | agent-ops | Explain aggregate input token spend across sessions, cron fires, and tool traffic: where tokens went, which consumers dominate, what reduces them | input-token-overheads |
+| [input-token-overheads](agent-ops/input-token-overheads/) | agent-ops | Audit input token cost at two scopes: per-turn prompt overhead (tool schemas, skills index, system text, profile, memory — measured live, ranked, reduced) and aggregate spend/cost accounting across sessions, cron fires, and tool traffic (cache-aware interpretation, pre-checked config levers, scheduled delta checks) | — |
 | [operator-brain](agent-ops/operator-brain/) | agent-ops | 8-module behavioral stack from Anthropic's Fable guide: act, lead with outcome, ground every claim | controlled-english-output |
 | [hermes-onboarding](agent-ops/hermes-onboarding/) | agent-ops | 21-step customer onboarding: gateway, dashboard, memory, search, guardrails, maintenance crons | disk-cleanup, log-analyzer |
 | [disk-cleanup](devops/disk-cleanup/) | devops | Triage disk space: survey all mounts → safe/ask buckets → execute approved set → verify delta | — |
@@ -194,7 +192,6 @@ Install by copying or symlinking `plugins/skill-manifest/` into `~/.hermes/plugi
 | skill-quality-review | Beta | ✓ (add_toc.py) | None (stdlib) |
 | build-review-loop | Beta | scripts | None (prompt-only) |
 | log-analyzer | Stable | ✓ | None (stdlib) |
-| input-token-analysis | Beta | scripts | None (stdlib) |
 | contrastive-refinement (bundled) | Stable | ✓ | None (stdlib) — ships inside `plugins/contrastive-advisor/` |
 | input-token-overheads | Stable | evals, scripts, tests | PyYAML (optional) |
 | operator-brain | Stable | — | None (prompt-only) |
