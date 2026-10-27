@@ -98,7 +98,7 @@ New skills are added as folders under the relevant domain directory.
 | [skill-quality-review](software-development/skill-quality-review/) | software-development | Batch skill audit: 9 automated checks, writing-for-agents levers, per-skill grep methodology, efficacy A/B testing, frontmatter/description fixes | skill-maintainer |
 | [build-review-loop](software-development/build-review-loop/) | software-development | Iterative build→review→fix loop: spec/brief → external builder (Cursor CLI) → independent verification → second-model review (Codex/Opus), N rounds; loop planning, brief templates, review adjudication | two-axis-code-review, skill-quality-review |
 | [log-analyzer](agent-ops/log-analyzer/) | agent-ops | Log pattern detection: error clusters, rate limits, timeout clusters, tool failures | scheduled-summary |
-| [input-token-overheads](agent-ops/input-token-overheads/) | agent-ops | Audit per-turn input token cost: measure each source, rank by cost, act on top consumers | skill-maintainer |
+| [input-token-overheads](agent-ops/input-token-overheads/) | agent-ops | Audit per-turn input token cost: measure each source, rank by cost, act on top consumers | skill-maintainer, input-token-analysis |
 | [operator-brain](agent-ops/operator-brain/) | agent-ops | 8-module behavioral stack from Anthropic's Fable guide: act, lead with outcome, ground every claim | controlled-english-output |
 | [hermes-onboarding](agent-ops/hermes-onboarding/) | agent-ops | 21-step customer onboarding: gateway, dashboard, memory, search, guardrails, maintenance crons | disk-cleanup, log-analyzer |
 | [disk-cleanup](devops/disk-cleanup/) | devops | Triage disk space: survey all mounts → safe/ask buckets → execute approved set → verify delta | — |
@@ -171,7 +171,7 @@ Install by copying or symlinking `plugins/lumen/` into `~/.hermes/plugins/` (or 
 | skill-quality-review | Beta | ✓ (add_toc.py) | None (stdlib) |
 | build-review-loop | Beta | scripts | None (prompt-only) |
 | log-analyzer | Stable | ✓ | None (stdlib) |
-| input-token-overheads | Stable | evals, scripts | PyYAML (optional) |
+| input-token-overheads | Stable | evals, scripts, tests | PyYAML (optional) |
 | operator-brain | Stable | — | None (prompt-only) |
 | hermes-onboarding | Beta | evals | None (prompt-only) |
 | disk-cleanup | Stable | evals | None (prompt-only) |

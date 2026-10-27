@@ -3,18 +3,24 @@ name: input-token-overheads
 description: "Use when context window is filling up too fast or input token cost is too high. Audits overhead sources."
 license: MIT
 metadata:
-  version: 1.5.0
+  version: 1.8.1
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [tokens, overhead, context, optimization, agent-ops]
-  related_skills: [skill-maintainer]
+  related_skills: [skill-maintainer, input-token-analysis]
 ---
 
 # Input Token Overheads
 
 Audit every source of per-turn input token cost on a Hermes Agent instance. Measure each, rank by cost, act on the top consumers.
 
-Run the consolidated audit with `scripts/audit_overheads.py` (procedure step 1, in one command): `--json` for structured output, `--chart <png>` for a shareable chart, plus a context-doctor-style check of every always-injected file — `TRUNCATED` (over injection cap, silently cut every turn) and `MISSING` statuses, exit 1 when any file needs attention. Ported from jzOcb/context-doctor (MIT; OpenClaw-only — concepts only, script is native).
+Three-way measurement (v1.8), category by category:
+
+1. **Measured** (ground truth): `scripts/audit_overheads.py` starts a REAL prompt (`hermes -z "Reply with OK" --usage-file ...`) and reads the provider's actual `input_tokens` for a fresh session. Providers report totals only.
+2. **Independent** (per category): the script builds Hermes' own offline inspection agent, renders the real system prompt parts, and measures each category with the build's rough tokenizer — system fixed text, skills index, memory, user profile, builtin/MCP/subagent tool schemas. It re-derives categories from the rendered prompt; it does not read prompt-size output.
+3. **Budget**: `hermes prompt-size --json` byte accounting (bytes/4 estimator), used only as the comparison column.
+
+Plus the context-doctor port (jzOcb/context-doctor, MIT; concepts only, script native): injection-cap checks — `TRUNCATED` (over cap, silently cut every turn), `MISSING` (broken reference). Exit 1 when any injected file needs attention.
 
 ## When to Use
 
@@ -25,27 +31,22 @@ Run the consolidated audit with `scripts/audit_overheads.py` (procedure step 1, 
 
 ## The Overhead Map
 
-Every turn, Hermes injects these blocks into the system prompt **before the user's message**:
+Verified on a live build (2026-10), cli surface, 44 tools:
 
-| Block | When loaded | Cost model |
-|-------|-------------|------------|
-| Skill descriptions | Every turn (skill-retrieval top-K) | ~200 chars per description, K per turn |
-| Memory (personal notes) | Every turn | Static, grows with usage |
-| User profile | Every turn | Static, grows as preferences accumulate |
-| Memory provider context | Every turn (if memory plugin active) | Dynamic, 5 memories recalled by default |
-| Tool schemas (direct) | Every turn | Full JSON schema per enabled tool |
-| Deferred tool catalog | Every turn (if configured) | Name + description only |
-| Mandatory skills | Every turn (if configured) | Full SKILL.md body |
-| Platform formatting rules | Every turn | Fixed, platform-specific |
-| Behavioral rules | Every turn | Fixed system prompt text |
-| Full skill body | On-demand (skill_view) | Only when a skill is loaded |
-| Compression summary | After threshold | Replaces older messages with a summary |
+| Category | Independent (rough tok) | Budget (bytes/4 tok) | Notes |
+|---|---|---|---|
+| Tool schemas | ~17.9k | ~17.9k | **Largest block.** Full JSON schema per enabled tool; builtin/mcp/subagent split available independently |
+| Skills index | ~5.4k | ~5.4k | Full index, always-on in the **volatile** tier (moved there so skill edits don't invalidate the cached stable prefix). NOT top-K — top-K tuning does not reduce it |
+| System fixed text | ~4.2k | ~4.1k | Identity/guidance; fixed cost |
+| User profile | ~0.8k | ~0.8k | Injection cap 3,000 chars — over-cap tail is **silently cut every turn** |
+| Memory (own facts) | 0 | 0 | 0 B when Mnemosyne owns recall; its per-turn recall injections sit outside the prompt-size budget — the live measured total includes them |
+| Provider-measured input | — | ~25.1k tok | ~3.2k BELOW the sum of estimates — the provider tokenizer counts the JSON tool schemas tighter than chars/4 |
 
 **On-demand (not per-turn):** full SKILL.md via `skill_view`, deferred tool schemas via `tool_describe`, reference files via `skill_view(file_path=...)`.
 
 ## Health Ratio
 
-The health metric is **overhead ratio**: overhead tokens divided by the model's context window. The absolute number matters for cost; the ratio matters for quality.
+The health metric is **overhead ratio**: measured (or estimated) overhead tokens divided by the model's context window. The absolute number matters for cost; the ratio matters for quality.
 
 | Ratio | Rating | Notes |
 |-------|--------|-------|
@@ -60,7 +61,7 @@ The health metric is **overhead ratio**: overhead tokens divided by the model's 
 
 2. **Same Task, More Tokens** (Levy et al., ACL 2024) — Reasoning performance degrades at input lengths far shorter than the model's stated maximum. The degradation appears even when the extra tokens are padding with no distracting content. The model's technical context window is not its effective context window. [aclanthology.org/2024.acl-long.818](https://aclanthology.org/2024.acl-long.818/)
 
-3. **Context Length Alone Hurts** (Du et al., EMNLP 2025) — Performance degrades 14-85% as input length increases, even when retrieval is perfect, irrelevant tokens are replaced with whitespace, or all tokens except relevant ones are masked. The sheer length of the input is itself a limitation. [aclanthology.org/2025.findings-emnlp.1264](https://aclanthology.org/2025.findings-emnlp.1264/)
+3. **Context Length Alone Hurts** (Du et al., EMNLP 2025) — Performance degrades 14-85% as input length increases, even when retrieval is perfect, irrelevant tokens are replaced with whitespace, or all tokens except relevant ones are masked. The sheer length of the input is itself a limitation. [aclanthology.org/2025.findings-emnlp.1264](https://aclanthology.org/2025.findings-emnlp.1264)
 
 **Cost compounding:** Overhead is paid every turn. At 10k tokens over 100 turns, that is 1M input tokens spent on overhead alone. Reducing overhead by 2k tokens saves 200k tokens per 100-turn session.
 
@@ -77,131 +78,93 @@ The health metric is **overhead ratio**: overhead tokens divided by the model's 
 
 ### 1. Measure each overhead source
 
-Run the audit script to get real numbers:
-
 ```bash
-python3 -c "
-import yaml, pathlib, glob, os, re
-
-# --- Skill descriptions (skill-retrieval index) ---
-files = glob.glob(os.path.expanduser('~/.hermes/skills/**/SKILL.md'), recursive=True)
-total_desc = 0; count = 0; by_cat = {}
-for f in files:
-    try:
-        text = pathlib.Path(f).read_text()
-        m = re.match(r'^---\n(.*?)\n---\n', text, re.DOTALL)
-        if not m: continue
-        fm = yaml.safe_load(m.group(1))
-        if not fm: continue
-        desc = fm.get('description', '')
-        if not desc: continue
-        cat = f.split('/skills/')[1].split('/')[0]
-        by_cat.setdefault(cat, [0,0]); by_cat[cat][0] += len(desc); by_cat[cat][1] += 1
-        total_desc += len(desc); count += 1
-    except Exception: pass
-avg = total_desc // max(count, 1)
-K = int(os.environ.get('SKILL_RETRIEVAL_TOP_K', '6'))
-print(f'Skills: {count} total, {total_desc} chars in descriptions')
-print(f'  Top-K per turn: ~{K*avg} chars (~{K*avg//4} tokens) at K={K}')
-print(f'  By category (top 5):')
-for cat, (sz, cnt) in sorted(by_cat.items(), key=lambda x: -x[1][0])[:5]:
-    print(f'    {sz:>6} chars ({cnt:>2} skills) {cat}')
-
-# --- Disabled skills (savings) ---
-config_path = os.path.expanduser('~/.hermes/config.yaml')
-if not os.path.exists(config_path):
-    print('  Config: ~/.hermes/config.yaml not found — skipping disabled/compression stats')
-else:
-    try:
-        with open(config_path) as fh:
-            cfg = yaml.safe_load(fh)
-        if cfg is None:
-            cfg = {}
-        disabled = cfg.get('skills',{}).get('disabled',[]) or []
-        print(f'  Disabled: {len(disabled)} skills (saves ~{len(disabled)*avg} chars)')
-        comp = cfg.get('compression',{}) or {}
-        print(f'  Compression: threshold={comp.get(\"threshold\")}, target_ratio={comp.get(\"target_ratio\")}, protect_last={comp.get(\"protect_last_n\")}')
-    except Exception as e:
-        print(f'  Config parse error: {e}')
-"
+python3 scripts/audit_overheads.py     # from the input-token-overheads skill dir
 ```
 
-For memory provider counts (if Mnemosyne is installed):
+One run: starts the live one-shot prompt (one inference call), then prints the category-by-category comparison table:
 
-```bash
-python3 -c "
-import sqlite3, os, glob
-for db in glob.glob(os.path.expanduser('~/.hermes/**/mnemosyne.db'), recursive=True):
-    conn = sqlite3.connect(db); c = conn.cursor()
-    for t in ['working_memory','episodic_memory','canonical_facts','memoria_facts']:
-        try:
-            c.execute(f'SELECT COUNT(*) FROM {t}'); print(f'  {t}: {c.fetchone()[0]} rows')
-        except: pass
-    conn.close()
-"
+```
+category                     indep est    budget    delta
+system fixed text                4,177     4,065      112
+skills index                     5,379     5,357       22
+memory (own facts)                   0         0        0
+user profile                       820       816        4
+tool schemas (all)              17,885    17,884        1
+TOTAL                           28,261    28,124      137
+provider measured                   25,077
 ```
 
-**Done:** skill descriptions, disabled count, and compression config measured. Tool schemas (#1) and behavioral rules (#2) are fixed costs — estimate from the model's system prompt or check `/tokens` in-session for the total. The script measures the variable sources (#6, #7); the fixed sources (#1-#5) require in-session inspection.
+- **indep est** — re-derived from the rendered prompt with the build's rough tokenizer (no prompt-size output involved)
+- **budget** — `hermes prompt-size` bytes/4
+- **provider measured** — the real fresh-session `input_tokens`; the honest denominator for the health ratio
+- Per-category deltas over a few hundred tokens = drift between what you think ships and what ships — investigate that category
+- Tool split (builtin/mcp/subagent) prints under the table
+
+Flags: `--platform cli|telegram|discord|...` (inspection + budget surface), `--skip-live` (no inference call; measured row reads "unmeasured"), `--json`, `--chart out.png`, `--ctx <window>`, `--live-timeout`. Exit 1 = an injected file needs attention.
+
+Also measure what neither estimate sees: memory-provider recall size per turn (in-session: read a fresh turn's injected recall blocks) — it rides on top of the measured fresh-session total and grows with facts.
+
+**Done:** category table read; health ratio computed from the provider-measured total; every injected-file status checked.
 
 ### 2. Rank by cost
 
-Sort all sources by tokens per turn. The typical ranking:
+The table ranks. Typical ranking:
 
-1. **Tool schemas** — largest fixed cost. Scales with enabled toolset count.
-2. **Behavioral rules + system prompt** — fixed text.
-3. **Mandatory skills** — full SKILL.md body per mandatory skill.
-4. **Memory + user profile** — static blocks.
-5. **Deferred tool catalog** — name + description per deferred tool.
-6. **Skill descriptions** — skill-retrieval top-K injection.
-7. **Memory provider context** — dynamic recall, 5 by default.
+1. **Tool schemas** — largest block. Scales with enabled toolset count.
+2. **Skills index** — always-on full index. Scales with indexed-skill count.
+3. **System fixed text** — fixed stable tier.
+4. **User profile** — capped, but usually near budget on long-lived agents.
+5. **Memory-provider recall** — dynamic, per-turn, outside the budget; measure in-session, trim facts if it grows.
 
-**Done:** sources ranked. Top 3 are the optimization targets.
+**Done:** top 3 identified — these are the optimization targets.
 
 ### 3. Act on top consumers
 
-**Tool schemas (largest fixed cost):**
-- Audit enabled toolsets: `hermes tools` in the dashboard
-- Disable unused toolsets (each removes 1-3 tool schemas from every turn)
-- Use `platform_toolsets.cli` in config.yaml to control per-profile toolset access
-- Prefer deferred tools (loaded on demand) over always-on tools
+**Tool schemas (largest block):**
+- Prefer deferred tools (loaded on demand) over always-on tools — each deferral replaces a full JSON schema with a ~150 B catalog row
+- Disable unused toolsets; check `requires_toolsets` in every skill's frontmatter before removing a toolset a skill depends on
+- Use `platform_toolsets.<platform>` in config.yaml to control per-surface access (a Telegram surface needs fewer tools than the CLI)
 
-**Memory blocks:**
-- Load `skill_view(name='hermes-compression-tuning')` for compression tuning
-- Prune memory entries that are stale or duplicated
-- Keep the memory block under its budget — if full, batch-remove stale entries before adding new ones
+**Truncated files (script exit 1):**
+- A TRUNCATED user profile is a correctness problem, not a cost problem — the tail is lost every turn. Trim under cap (batch-shorten or remove stale entries) and re-run until `OK`
 
-**Skill descriptions:**
-- Disable unused skills in `config.yaml` under `skills.disabled` — each removed skill saves ~200 chars from the retrieval index
-- Keep descriptions concise — the skill-retrieval plugin truncates at 200 chars. Descriptions over 200 chars waste tokens without improving routing
+**Skills index:**
+- Disable unused skills in `config.yaml` under `skills.disabled` — each removal drops ~200-300 chars from the always-on index
+- Trim descriptions over ~200 chars — they waste index budget without improving routing
 
 **Memory provider (if installed):**
-- Run consolidation to move working to episodic, reducing the working set
-- Invalidate stale facts
-- Lower the recall `limit` parameter if context is tight
+- Run consolidation to move working to episodic, reducing the recall budget per turn
+- Invalidate stale facts; lower the recall `limit` if context is tight
 
-**Done:** at least one optimization applied to each top-3 source.
+**Compression:** load `skill_view(name='hermes-compression-tuning')` for threshold and target-ratio tuning.
+
+**Done:** at least one optimization applied to each top-3 source, every truncated file trimmed under cap.
 
 ### 4. Verify the delta
 
-Re-run the audit script from step 1. Compare token estimates before and after.
+Re-run the audit script (live). Compare each category's delta and the provider-measured total before/after; confirm all injected files read `OK`.
 
-**Done:** before/after delta reported. If no meaningful reduction, the remaining overhead is structural (system prompt + behavioral rules) and cannot be reduced without config changes.
+**Done:** before/after per-category delta reported. If no meaningful reduction, the remaining overhead is structural (tool schemas + skills index) and needs config changes, not content trims.
 
-## Pitfalls
+## Common Pitfalls
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
-| Audit script returns 0 skills | Skills path is wrong or `~/.hermes/skills/` is empty | Check `ls ~/.hermes/skills/` exists and contains category subdirectories. If skills are symlinked or on a custom path, adjust the glob |
+| Measured row reads "unmeasured" | Run with `--skip-live`, or the one-shot failed to write its usage file | Run without `--skip-live`; check the live-run error line |
+| Skills index independent estimate reads 0 while budget shows thousands | The render's `<available_skills>` block was searched in the wrong tier | The script searches volatile first, then stable (current layout keeps the index in volatile) |
+| Provider measured ~3k below the sum of estimates | Tokenizer difference: chars/4 and the rough estimator both over-count JSON tool schemas | Trust the provider number for ratios; use category deltas for drift detection, not absolute truth |
+| Memory block 0 B but recall text arrives every turn | Provider (Mnemosyne) injects recall outside the prompt-size budget | Measure recall in-session; trim memory facts, not the block |
+| Skills index cost ignores top-K settings | Current builds inject the full index | Optimize via `skills.disabled` and description length, not top-K |
+| User profile flagged TRUNCATED | Over the 3,000-char injection cap | Trim under cap; until then the tail is lost every turn |
 | Disabling a toolset breaks a workflow | A skill depends on that toolset | Check `requires_toolsets` in the skill's frontmatter before disabling |
 | Memory pruning removes a needed fact | Aggressive removal without checking last-used | Check recall_count and last_recalled before removing |
-| Compression triggers too early | `threshold` set too low | Raise it for longer context windows, but watch for quality degradation |
-| Compression triggers too late | `threshold` set too high | Lower it — but compression summaries themselves cost tokens |
-| Mandatory skill overhead seems unavoidable | It is configured in behavioral rules | Accept the cost, or remove the mandatory load requirement in config |
+| Compression triggers too early / too late | `threshold` set too low / too high | Tune with `hermes-compression-tuning`; compression summaries themselves cost tokens |
+| Mandatory skill overhead seems unavoidable | Configured in behavioral rules | Accept the cost, or remove the mandatory load requirement in config |
 
 ## Verification
 
-- Re-run audit script — confirm token estimates dropped
+- Audit script (live) prints a full category table with a provider-measured TOTAL row
+- Re-run audit script — per-category deltas and the measured total dropped
 - `hermes tools` — confirm only needed toolsets enabled
-- Memory block — confirm under budget
-- Memory provider counts — confirm working set reduced after consolidation
 - Monitor next session: quality should not degrade from reduced context
