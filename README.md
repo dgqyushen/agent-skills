@@ -57,16 +57,18 @@ agent_skills/
 │   └── disk-cleanup/                 ← triage survey → safe/ask buckets → execute → verify delta
 └── plugins/                          ← installable Hermes Agent plugins
     ├── skill-retrieval/              ← BM25 retrieval that injects the top-K relevant skills per turn
-    ├── contrastive-advisor/          ← advisory hook after behavioral skill edits; bundles the contrastive-refinement skill
-    └── lumen/                        ← LLM wiki plugin: methodology + memory-fed curator
+│   ├── contrastive-advisor/       ← advisory hook after behavioral skill edits; bundles the contrastive-refinement skill + fire-sweeper cron
+│   ├── skill-manifest/            ← enforces UPSTREAM_MANIFEST.md: detects untracked skills + content drift, requires fingerprint-bound ack
+│   ├── dev-pipeline/              ← five-stage development pipeline (grill/spec/test-evals/build/review-commit) with a pre_tool_call create-gate hook
+│   └── lumen/                     ← LLM wiki plugin: methodology + memory-fed curator
 ```
 
 New skills are added as folders under the relevant domain directory.
 
 ## Skills
 
-| Skill | Domain | What it does | Pairs with |
-|-------|--------|-------------|------------|
+| Skill | Domain | What it does | Dependencies |
+|-------|--------|-------------|-------------|
 | [image-studio](creative/image-studio/) | creative | Staged fal.ai image gen/edit/upscale/cleanup with cost logging + `--dry-run` | pexels-stock-photos |
 | [clips-studio](creative/clips-studio/) | creative | Staged fal.ai short-video: text-to-video, animate still, camera moves | image-studio |
 | [pexels-stock-photos](creative/pexels-stock-photos/) | creative | Free real-world stock photos (Pexels API, 20k/month) with attribution handling | image-studio |
@@ -100,6 +102,7 @@ New skills are added as folders under the relevant domain directory.
 | [operator-brain](agent-ops/operator-brain/) | agent-ops | 8-module behavioral stack from Anthropic's Fable guide: act, lead with outcome, ground every claim | controlled-english-output |
 | [hermes-onboarding](agent-ops/hermes-onboarding/) | agent-ops | 21-step customer onboarding: gateway, dashboard, memory, search, guardrails, maintenance crons | disk-cleanup, log-analyzer |
 | [disk-cleanup](devops/disk-cleanup/) | devops | Triage disk space: survey all mounts → safe/ask buckets → execute approved set → verify delta | — |
+| [dev-pipeline](plugins/dev-pipeline/) | plugins | Five-stage development pipeline: grill → spec → test-evals → build → review-commit, sized by T0-T3 tiers, with a review-lessons library and a pre_tool_call create-gate that blocks new software-development skills unless a single-use allow flag is consumed | skill-quality-review |
 
 > **Related work:** [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus) (PewDiePie's self-hosted AI workspace) ships similar features as a standalone web app — "Deep Research" and "Compare" — while `deep-research` and `model-compare` cover the same ground as pure-prompt workflows + stdlib scripts inside any agent's tool loop.
 
@@ -146,6 +149,12 @@ A Hermes plugin that is the advisory companion to the `contrastive-refinement` s
 
 Install by copying or symlinking `plugins/contrastive-advisor/` into `~/.hermes/plugins/` (or your profile's `plugins/`), then restart the gateway. Tests: `python3 -m pytest plugins/contrastive-advisor/tests/`.
 
+### dev-pipeline
+
+A Hermes plugin that guards skill creation and carries the development pipeline as five bundled stage skills (`dev-pipeline:orchestrator` → `dev-pipeline:grill` → `dev-pipeline:spec` → `dev-pipeline:test-evals` → `dev-pipeline:build` → `dev-pipeline:review-commit`), plus a `review-lessons` library split out of the review stage. A `pre_tool_call` gate blocks bare-name creation of new software-development skills unless a single-use `.allow-create` flag is consumed — the loop concepts that used to live in a standalone build-review-loop skill now ship as these bundled skills.
+
+Install by copying or symlinking `plugins/dev-pipeline/` into `~/.hermes/plugins/` (or your profile's `plugins/`), then restart the gateway. Tests: `python3 -m pytest plugins/dev-pipeline/tests/`.
+
 ### skill-manifest
 
 A Hermes plugin that enforces the `UPSTREAM_MANIFEST.md` rule for a skill library: skill arrivals (installed, copied in, created) must have a manifest row acknowledging them, and content changes in manifested skills must be re-acknowledged against a content fingerprint.
@@ -157,46 +166,9 @@ A Hermes plugin that enforces the `UPSTREAM_MANIFEST.md` rule for a skill librar
 
 Install by copying or symlinking `plugins/skill-manifest/` into `~/.hermes/plugins/` (or your profile's `plugins/`), then restart the gateway. Tests: `python3 -m pytest plugins/skill-manifest/tests/`.
 
-## Skill maturity
+## Conventions
 
-| Skill | Status | Tests | Dependencies |
-|-------|--------|-------|-------------|
-| image-studio | Stable | ✓ | fal.ai key |
-| clips-studio | Stable | ✓ | fal.ai key |
-| pexels-stock-photos | Stable | ✓ | Pexels API key (free) |
-| deep-research | Stable | evals, references | None (prompt-only) |
-| entity-research | Stable | ✓ | None (stdlib) |
-| people-enrichment | Stable | ✓ | openpyxl; PDL API key |
-| library-rag | Stable | ✓ | sqlite-vec, requests, pyyaml; optional PDF/EPUB/MCP deps |
-| notebooklm-mode | Stable | ✓ | library-rag |
-| news-monitoring | Stable | evals | None (prompt-only) |
-| youtube-topic-research | Stable | ✓ | ddgs, youtube-transcript-api, jinja2, pyyaml |
-| source-tracker | Stable | ✓ | None (stdlib) |
-| fact-checker | Stable | ✓ | None (stdlib) |
-| media-analyzer | Stable | ✓ | None (stdlib) |
-| endpoint-probe | Stable | ✓ | None (stdlib) |
-| model-compare | Stable | ✓ | None (stdlib); tool mode needs SEARXNG_URL or ddgs CLI |
-| website-scraping | Stable | evals | None (prompt-only) |
-| fill-template | Stable | ✓ | python-docx, openpyxl |
-| travel-itinerary | Stable | ✓ | None (stdlib) |
-| decision-log | Stable | ✓ | None (stdlib) |
-| receipt-compiler | Stable | ✓ | opencv-python-headless, pillow, pillow-heif, pytesseract, reportlab, numpy; tesseract-ocr binary |
-| scheduled-summary | Stable | ✓ | None (stdlib) |
-| file-organizer | Stable | ✓ | None (stdlib); optional external LLM via urllib (deepseek/openrouter/ollama) |
-| task-brief | Beta | — | None (prompt-only) |
-| marp-deck | Stable | ✓ | Node.js (marp-cli); LibreOffice only for editable PPTX export |
-| claude-plugin-converter | Beta | ✓ | None (stdlib) |
-| skill-quality-review | Beta | ✓ (add_toc.py) | None (stdlib) |
-| log-analyzer | Stable | ✓ | None (stdlib) |
-| contrastive-refinement (bundled) | Stable | ✓ | None (stdlib) — ships inside `plugins/contrastive-advisor/` |
-| input-token-overheads | Stable | evals, scripts, tests | PyYAML (optional) |
-| operator-brain | Stable | — | None (prompt-only) |
-| hermes-onboarding | Beta | evals | None (prompt-only) |
-| disk-cleanup | Stable | evals | None (prompt-only) |
-| pdf2epub | Stable | ✓ | pymupdf, ebooklib, Pillow |
-| pdf2epub-calibration | Stable | — | None (companion rules to pdf2epub) |
-
-> *Stable* = production-tested with real workflows. *Tests* column: ✓ = has a pytest suite; *evals* = ships routing/output-contract fixtures under `evals/` (sample request → expected routing, required output fields, forbidden patterns), validated by `tests/test_routing_fixtures.py` — no live-model execution in CI. *Dependencies* lists pip/runtime requirements beyond Python stdlib. Plugins are tested separately (`plugins/<name>/tests/`) and tracked under Plugins above.
+> Conventions: the *Dependencies* column on the Skills table lists pip/runtime requirements beyond Python stdlib; skills marked *evals* ship routing/output-contract fixtures under `evals/` (sample request → expected routing, required output fields, forbidden patterns), validated by `tests/test_routing_fixtures.py` — no live-model execution in CI. Plugins are tested separately (`plugins/<name>/tests/`) and tracked under Plugins above.
 
 ## Install
 
