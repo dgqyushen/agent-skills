@@ -7,9 +7,9 @@ Apache-2.0, created at Google); personas vendored at pinned commit
 
 ## When to run
 
-Tier gate comes from `orchestrator/references/size-tiers.md`
-(single home): the gate is offered at **T2 and T3**, right after the plan turn
-is saved and the user has approved it, BEFORE `test-evals` runs. T0 and T1 are
+Complexity gate comes from `orchestrator/references/risk-routing.md`
+(single home): the gate is offered at **S2 and S3**, right after the plan turn
+is saved and the user has approved it, BEFORE `test-evals` runs. S0 and S1 are
 exempt. So is research. Offer semantics: the stage makes ONE explicit offer
 (the swarm's 4 dispatches, ~2–4 min each); dispatch only on the user's yes.
 For plans of more than 3 tasks the offer carries a run recommendation
@@ -19,7 +19,7 @@ dispatch the swarm without an explicit user yes for this build; a declined or
 unanswered offer is noted in the ledger and execution continues.
 - **Optional gate (spec range):** after the spec turn, before the plan turn,
   when intent risk is high — e.g. a wrong assumption here is expensive
-  (new external integration, migration, public API). T2/T3 only. Skip by
+  (new external integration, migration, public API). S2/S3 only. Skip by
   default.
 - **Skip entirely for:** trivial single-task builds, research spikes, and
   anything where the user invoked review-commit directly on a diff.

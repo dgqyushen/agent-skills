@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.3.0 — risk-first routing
+
+- Separate **complexity S0–S3** (planning/decomposition) from **risk R0–R3**
+  (review depth). `skills/orchestrator/references/risk-routing.md` is the
+  authoritative classification and stage-routing reference.
+- Preserve T0–T3 as compatibility review-tier names for existing downstream
+  stages; the same reviewer lanes, budgets and live-deploy gate remain.
+- Untrusted input and filesystem boundaries escalate independent of diff size;
+  ordinary large refactors no longer automatically trigger T2/T3 reviews.
+- Fix verification guidance: rerun full acceptance tests after every fix and
+  never equate an exhausted budget with SHIP.
+- Add regression checks for routing, version and safety invariants.
+- Align planning-stage gates (spec turns, Goldfish offer, converge loop) with
+  complexity bands; review budgets stay risk-derived.
+- Plugin version 0.3.0. No hook implementation changes.
+- Skill metadata versions stay in their own series: orchestrator 2.1.0,
+  spec/build/review-commit 2.1.0, grill 1.1.0 (the routing contract is a
+  minor release for each stage; the plugin release is 0.3.0).
+
 ## v0.2.3 — coding principles woven in
 
 Adapted from [andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills)

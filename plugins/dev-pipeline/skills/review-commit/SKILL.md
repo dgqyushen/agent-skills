@@ -2,7 +2,7 @@
 name: review-commit
 description: "Use when the user says 'review loop N times', 'build then review', 'fix and re-review', 'review loop until clean', 'have cursor build, codex review', or wants the dev-pipeline review stage: a two-axis single pass (Standards + Spec, parallel, never merged) FIRST, then a budgeted confirm-round loop on the fix diffs until no BLOCKING/MAJOR is open, then the commit/deploy gate — three-reviewer gate before live deploy, release hygiene before tagging. Also triggers: 'two-axis review', 'confirm rounds', 'review diff until SHIP', 'N confirm rounds', ship gate."
 metadata:
-  version: 2.0.0
+  version: 2.1.0
   author: moonlight-lupin
   license: MIT
   platforms: [linux, macos, windows]
@@ -21,7 +21,7 @@ case comes up, never at stage start.
 
 ## Before you start: tier, lanes, budget
 
-1. **Tier** — from `orchestrator/references/size-tiers.md`. It sets how many
+1. **Tier** — risk-derived review tier from `orchestrator/references/risk-routing.md` (compatibility table: `size-tiers.md`). It sets how many
    reviewers run and how many confirm rounds the loop may spend. Say it:
    "T2: two reviewers, R1 + up to 2 confirm rounds."
 2. **Lanes** — which model builds and which review:
@@ -50,12 +50,12 @@ before R1. The short version:
 - **R1** reviews the change's diff with the tier's reviewer lanes.
 - **Only BLOCKING/MAJOR keep the loop open.** MINOR/NIT go to the deferred
   list and never trigger a round.
-- **Confirm rounds review the FIX diff**, not the whole change again.
+- **Confirm rounds review the FIX diff**, with full acceptance suite and new adversarial regression checks rerun after each fix.
   Anything outside the fix lines is OUT-OF-SCOPE-N → deferred (unless a
   reproduced BLOCKING).
 - **Only reviewers with open findings** are re-dispatched.
 - **Hard budget** per tier (T1 = 1, T2 = 2, T3 = 3 confirm rounds). When it's
-  spent, stop and give the user ship / one more round / redesign.
+  spent, stop and give the user redesign / another round / explicit risk acceptance; open BLOCKING/MAJOR or failing acceptance tests are NOT SHIP.
 - **Stop early** on the second same-class finding (redesign the class), on no
   progress, or when most findings are fix-induced (tighten the briefs).
 - **Reproduce before fixing**; verify each fix landed and its test fails

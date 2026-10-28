@@ -105,16 +105,19 @@ deferred like any other MINOR.
 
 ## Round budget (hard)
 
-The budget is the tier's confirm-round count (`size-tiers.md`): T0 = 0,
-T1 = 1, T2 = 2, T3 = 3. Set it before R1 and say it: "T2: R1 + up to 2
-confirm rounds."
+The budget is the risk-derived tier's confirm-round count
+(`orchestrator/references/risk-routing.md`; compatibility table in
+`size-tiers.md`): T0 = 0, T1 = 1, T2 = 2, T3 = 3. Set it before R1 and say it:
+"T2: R1 + up to 2 confirm rounds."
 
 When the budget is spent and BLOCKING/MAJOR findings are still open, STOP.
 Do not dispatch another round. Give the user the open set and a choice:
 
-- **Ship with known issues** (list them),
-- **One more round** on the named findings only, or
-- **Redesign** the part that keeps failing (see *Same-class stop*).
+- **Redesign** the part that keeps failing (see *Same-class stop*),
+- **One more round** on the named findings only — an explicit budget extension, or
+- **Explicitly accept the residual risk**, with the open findings recorded
+  at the acceptance. An exhausted budget by itself is never SHIP;
+  open BLOCKING/MAJOR or failing acceptance tests are NOT SHIP.
 
 A user's "review loop N times" means N reviews in total — R1 plus up to N−1
 confirm rounds — for that task, whatever the tier. "Review
@@ -124,7 +127,8 @@ budget — then ask.
 ## Stop conditions — check after every round, in this order
 
 1. **Ship.** No open BLOCKING/MAJOR (deferred MINOR/NIT/OUT-OF-SCOPE are fine)
-   and every dispatched reviewer's verdict is in. → SHIP. Don't run another
+   and every dispatched reviewer's verdict is in, and the full acceptance
+   suite ran green after the last fix. → SHIP. Don't run another
    round to get a cleaner report.
 2. **Same-class stop.** The second finding of the same class (same mechanism,
    same input family, same invariant — e.g. a second escaping bypass, a
@@ -198,14 +202,14 @@ User's standing instruction: before any LIVE deploy, all three reviewer lanes
 - For a port/adoption from a public repo, the net diff is the whole session
   delta against the pre-session baseline.
 
-Worked example (T2, live deploy target): budget = R1 + 2 confirm rounds →
-R1 (both lanes, 1 BLOCKING) → R2 (fix confirmed clean) → Step B loop converges
-→ gate round = A+B+C on the NET diff (outside the budget) → one reviewer
-raises a gate BLOCKING → one fix round → re-gate by that reviewer → all three
-SHIP → push. If R2 had found two more BLOCKINGs: R3 is confirm round 2, the
-budget's last round — if R3 resolves them, stop condition 1 fires and the loop
-SHIPS normally; if R3 still leaves BLOCKING/MAJOR open, budget stop → ask the
-user before any further round. The gate runs only after the loop converges.
+Worked example (T3 — a live deploy classifies R3, so its review tier is T3):
+budget = R1 + 3 confirm rounds → R1 (all three lanes, 1 BLOCKING) → second
+confirm round (fix confirmed clean) → third confirm round (fix confirmed
+clean) → Step B loop converges → gate round = all three lanes on the NET diff
+(outside the budget) → one reviewer raises a gate BLOCKING → one fix round →
+re-gate by that reviewer → all three SHIP → push. If the third confirm round
+still left BLOCKING/MAJOR open, budget stop → ask the user before any further
+round. The gate runs only after the loop converges.
 
 ## Spec and design documents
 

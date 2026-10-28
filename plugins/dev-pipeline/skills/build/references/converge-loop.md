@@ -58,7 +58,7 @@ Converge iteration 1: 3 gaps found (T046, T047, T048) — see .hermes/sdd/conver
 Converge iteration 2: CONVERGED — all gaps closed
 ```
 
-**Convergence bound:** Cap at the tier's converge limit (T2: 2, T3: 3 — `orchestrator/references/size-tiers.md`; T0/T1 skip the loop). If gaps persist at the cap, the spec or plan has a structural problem — stop and ask the human to review the spec/plan rather than continuing to patch symptoms. One more round of converge on a broken spec produces code that satisfies a broken spec.
+**Convergence bound:** Cap at the complexity band's converge limit (S2: 2, S3: 3 — `orchestrator/references/risk-routing.md`; S0/S1 skip the loop — converge reconciles a spec'd plan, and S0/S1 have none). If gaps persist at the cap, the spec or plan has a structural problem — stop and ask the human to review the spec/plan rather than continuing to patch symptoms. One more round of converge on a broken spec produces code that satisfies a broken spec.
 
 **Append-only discipline:** Converge appends new tasks. It never modifies or reopens completed tasks. If a converge gap reveals that a completed task was wrong, that's a fix dispatch against the original task (with re-review), not a converge task — converge is for *missing* work, not *incorrect* work.
 

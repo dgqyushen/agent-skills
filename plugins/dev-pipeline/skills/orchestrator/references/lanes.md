@@ -30,7 +30,7 @@ here, so this file stays the only place pins live.
 
 ## Which reviewers a tier uses
 
-From `size-tiers.md`: T1 = one reviewer (A by default); T2 = two, cross-model
+From `risk-routing.md` via `size-tiers.md`: T1 = one reviewer (A by default); T2 = two, cross-model
 (A + B); T3 and every live deploy = all three (A + B + C, the three-reviewer
 gate). The builder lane's model must differ from every reviewer lane's model.
 

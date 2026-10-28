@@ -294,7 +294,7 @@ Check the stop conditions in `confirm-round-protocol.md` after every round:
 
 - **No open BLOCKING/MAJOR** → deliver final verdict (APPROVE, or APPROVE WITH FIX listing the deferred MINOR/NIT items)
 - **BLOCKING/MAJOR open + budget left + no stop condition hit** → go to Step 8
-- **Stop handling follows the protocol exactly** (`confirm-round-protocol.md`, *Stop conditions*): Ship → SHIP. Budget spent with BLOCKING/MAJOR open → give the user the open set with ship / one-more-round / redesign. Second same-class stop → ONE redesign brief in-process, third same-class → user. No-progress stop → stop, re-read the code, decide with the user. Fix-quality stop → tighten the fix brief and continue; it is not a user escalation by itself.
+- **Stop handling follows the protocol exactly** (`confirm-round-protocol.md`, *Stop conditions*): Ship → SHIP. Budget spent with BLOCKING/MAJOR open → give the user the open set with redesign / one-more-round / explicit risk acceptance; open BLOCKING/MAJOR or failing acceptance tests are NOT SHIP. Second same-class stop → ONE redesign brief in-process, third same-class → user. No-progress stop → stop, re-read the code, decide with the user. Fix-quality stop → tighten the fix brief and continue; it is not a user escalation by itself.
 
 ### Step 10 — Review gate before push
 

@@ -1,8 +1,8 @@
 ---
 name: build
-description: "Use when executing an implementation plan with subagents — delegate_task a fresh implementer per task that makes the plan's RED tests pass, per-task review sized by tier (one combined reviewer at T2, spec-compliance then code-quality at T3), durable progress ledger, converge loop, per-task independent verification. Or whenever dispatching an implementer on a ticket: state the ticket title before starting, dependency injection for mockability, SDK-style interfaces, cadenced inner/outer test loop. The build stage of the dev-pipeline."
+description: "Use when executing an implementation plan with subagents — delegate_task a fresh implementer per task that makes the plan's RED tests pass, per-task review sized by risk-derived tier (one combined reviewer at T2, spec-compliance then code-quality at T3), durable progress ledger, converge loop, per-task independent verification. Or whenever dispatching an implementer on a ticket: state the ticket title before starting, dependency injection for mockability, SDK-style interfaces, cadenced inner/outer test loop. The build stage of the dev-pipeline."
 metadata:
-  version: 2.0.0
+  version: 2.1.0
   author: moonlight-lupin
   license: MIT
   platforms: [linux, macos, windows]
@@ -17,7 +17,7 @@ metadata:
 
 Execute implementation plans by dispatching a fresh implementer subagent per task, reviewing each task at the depth its tier sets, followed by a final integration review.
 
-**Per-task review by tier** (`orchestrator/references/size-tiers.md`):
+**Per-task review by risk-derived tier** (`orchestrator/references/risk-routing.md`, compatibility: `size-tiers.md`):
 
 | Tier | Per-task review |
 |---|---|
@@ -151,8 +151,8 @@ single source of truth; this list exists so violations are checkable at a glance
 - Paste large diffs, reports, or accumulated history into dispatch prompts → §4 (use file handoffs)
 - Re-dispatch a task the progress ledger already marks complete → §3
 - Treat review reports as final proof without orchestrator-run verification → Final verification rule
-- Skip the converge loop at T2/T3 → §9 (final review passing ≠ spec intent satisfied end-to-end)
-- Exceed the tier's converge cap (T2: 2, T3: 3) without escalating to the human → §9
+- Skip the converge loop at S2/S3 → §9 (final review passing ≠ spec intent satisfied end-to-end)
+- Exceed the complexity band's converge cap (S2: 2, S3: 3) without escalating to the human → §9
 - Accept a reviewer verdict without evidence → §6 ("APPROVED" without a written report file is a claim)
 
 ## Final verification rule
@@ -175,7 +175,7 @@ After completing all tasks in the plan, confirm:
 - [ ] Orchestrator ran independent verification (not trusting subagent self-report) for each task
 - [ ] Progress ledger (.hermes/sdd/progress.md) has a completion line for every task with commit range + review verdicts
 - [ ] Final integration reviewer dispatched with branch-wide diff/review package
-- [ ] T2/T3: converge loop ran at least once (CONVERGED or gaps executed), within the tier's cap without human escalation
+- [ ] S2/S3: converge loop ran at least once (CONVERGED or gaps executed), within the complexity band's cap without human escalation
 - [ ] Full test suite green
 - [ ] No deferred Minor findings left untriaged
 - [ ] Final commit made

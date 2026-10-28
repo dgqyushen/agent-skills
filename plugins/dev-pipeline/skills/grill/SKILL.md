@@ -2,7 +2,7 @@
 name: grill
 description: "Use when a plan is fuzzy and needs hardening before a spec — decision-tree grilling in frontier rounds, every open decision put as a numbered question with a recommended answer, until shared understanding. Triggers: 'grill me', 'grill this plan', 'stress-test this', 'poke holes in this', 'harden this design', pre-spec hardening, unresolved decisions."
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   author: moonlight-lupin
   license: MIT
   platforms: [linux, macos, windows]
@@ -27,7 +27,7 @@ Grilling is an interview, not an execution — it produces alignment, not artifa
 - A plan feels roughly right but unresolved decisions are hiding in it
 - Before writing a spec (pre-spec hardening)
 - User wants to find soft spots in a design before committing to code
-- Before any T2/T3 build — and any T1 build whose ask is ambiguous — where the plan is still fuzzy and the domain language isn't settled (tiers: `orchestrator/references/size-tiers.md`)
+- Before any S2/S3 build — and any S1 build whose ask is ambiguous — where the plan is still fuzzy and the domain language isn't settled (routing: `orchestrator/references/risk-routing.md`)
 
 **Don't use for:**
 

@@ -26,8 +26,8 @@ Don't assume. Don't hide confusion. Surface tradeoffs.
 **Where it runs in the pipeline:** questions are asked BEFORE dispatch — in
 `grill`, in the spec's `[NEEDS CLARIFICATION]` markers, and in the build's
 pre-flight scan. Mid-task, an implementer never silently picks: it reports
-`NEEDS_CONTEXT`. T0/T1 work, which skips grill and the spec, states its
-assumptions in one line instead (see *Plan format for T0/T1*).
+`NEEDS_CONTEXT`. S0/S1 work, which skips grill and the spec, states its
+assumptions in one line instead (see *Plan format for S0/S1*).
 
 ## 2. Simplicity first
 
@@ -67,13 +67,13 @@ In this pipeline the plan's test cases and `test-evals`' RED tests are the
 success criteria at T1-T3, and "review reports are not proof" means the
 orchestrator re-runs the checks itself.
 
-## Plan format for T0/T1
+## Plan format for S0/S1
 
-T0 and T1 skip the spec turn, so they carry two lines of intent-pinning
-instead. State them to the user with the tier line:
+S0 and S1 skip the spec turn, so they carry two lines of intent-pinning
+instead. State them to the user with the classification line:
 
 ```
-Tier: T1 — one endpoint, ~150 lines, no risk class.
+S1/R1 (T1 review) — one endpoint, ~150 lines, no external exposure.
 Assumptions: <each assumption, or "none">. Readings considered: <if the ask had more than one>.
 1. <step> → verify: <check>
 2. <step> → verify: <check>

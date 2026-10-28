@@ -2,7 +2,7 @@
 name: spec
 description: "Use when pinning intent before code — capture a spec (user stories, acceptance criteria, [NEEDS CLARIFICATION] markers), then plan the HOW (bite-sized tasks, blocking edges, gates) or slice tracer-bullet tickets. Triggers: 'write a spec', 'plan this', 'break this into tickets', 'slice this up', 'create tickets', 'what are the work units'."
 metadata:
-  version: 2.0.0
+  version: 2.1.0
   author: moonlight-lupin
   license: MIT
   platforms: [linux, macos, windows]
@@ -21,7 +21,7 @@ Three jobs, one stage, in order of invocation:
 
 Do the job the user invoked — specifying only, or planning only. The `grill` stage hardens the plan first if decisions are unresolved.
 
-**By tier** (`orchestrator/references/size-tiers.md`): T0 skips this stage. T1 skips the spec turn — the plan header carries an assumptions line and 3-6 acceptance criteria written as `step → verify: check` (format in `orchestrator/references/coding-principles.md` § Plan format for T0/T1), and the plan is one task. T2/T3 run all turns.
+**By complexity** (`orchestrator/references/risk-routing.md`): S0 skips this stage. S1 skips the spec turn — the plan header carries an assumptions line and 3-6 acceptance criteria written as `step → verify: check` (format in `orchestrator/references/coding-principles.md` § Plan format for S0/S1), and the plan is one task. S2/S3 run all turns. Review depth (the risk-derived T-tier) does not select spec turns: an S3/R1 change still gets the full spec with T1 review.
 
 **Test cases, not test code.** For each task the plan names its test cases: behavior, seam (with its seam note), inputs, expected value and where that value comes from. The `test-evals` stage writes the test code and runs it RED; the `build` implementer makes it GREEN.
 
@@ -132,7 +132,7 @@ Before handing off to the plan, attempt to resolve open questions:
 
 ## Goldfish spec review (pre-implementation gate)
 
-After the plan turn is saved and approved, and BEFORE the `test-evals` stage, offer the Goldfish spec review — a zero-context subagent swarm (Zoom Out, Comprehension, Design Critic, Implementation Readiness personas) that stress-tests the plan. Offered at T2 and T3 (`orchestrator/references/size-tiers.md`); T0, T1, and research are exempt. Optional spec-range pass after the spec turn when intent risk is high. Persona files, dispatch contract, and convergence rules: `references/goldfish-spec-review.md` (single home — dispatch from there).
+After the plan turn is saved and approved, and BEFORE the `test-evals` stage, offer the Goldfish spec review — a zero-context subagent swarm (Zoom Out, Comprehension, Design Critic, Implementation Readiness personas) that stress-tests the plan. Offered at S2 and S3 (`orchestrator/references/risk-routing.md`); S0, S1, and research are exempt. Optional spec-range pass after the spec turn when intent risk is high. Persona files, dispatch contract, and convergence rules: `references/goldfish-spec-review.md` (single home — dispatch from there).
 
 ## Consume the spec first (plan turn)
 
@@ -201,7 +201,7 @@ Path A for multi-task per-task review gates; Path B for greenfield builds on a s
 
 ### Execution Handoff
 
-After saving the plan, offer the next step: **"Plan complete and saved. Next: `test-evals` writes the plan's test cases and runs them RED, then `build` dispatches a fresh subagent per task with T_ review. Shall I proceed?"** Execution is the `build` stage: fresh `delegate_task` per task; per-task review per tier (T2: one combined reviewer; T3: spec compliance, then code quality); proceed only when the verdicts approve. For T1 plans, offer **inline execution** with checkpoints.
+After saving the plan, offer the next step: **"Plan complete and saved. Next: `test-evals` writes the plan's test cases and runs them RED, then `build` dispatches a fresh subagent per task with T_ review. Shall I proceed?"** Execution is the `build` stage: fresh `delegate_task` per task; per-task review per tier (T2: one combined reviewer; T3: spec compliance, then code quality); proceed only when the verdicts approve. For S1 plans, offer **inline execution** with checkpoints.
 
 ## Verification
 
